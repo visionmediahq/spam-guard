@@ -8,11 +8,15 @@
 //   package.json        add the package, remove altcha / altcha-lib (the package owns them)
 //   astro.config.*      vite.optimizeDeps.exclude the package (astro dev; see README)
 //   src/styles/*.css    @source the package (Tailwind 4 skips node_modules)
+//   .npmrc              legacy-peer-deps=true (see below)
+//   Dockerfile          copy .npmrc next to package*.json, before npm ci
 //   src/pages/api/form-config.ts, altcha-challenge.ts   → re-exports + prerender = false
 //   every other src file: imports of the copies → package entry points
 //   deletes the copies and the tests that moved into the package
-// Does not touch package-lock.json: afterwards run `npx npm@10 install --package-lock-only` (the
-// Docker images' npm; a lockfile from npm 11 can fail their `npm ci` on altcha-lib's optional peers).
+// Does not touch package-lock.json: run `npm install --package-lock-only` afterwards, with the
+// .npmrc in place. Without legacy-peer-deps, Astro's h3 1.x (via unstorage) clashes with
+// altcha-lib's optional h3 2 peer; npm 10 and 11 resolve that differently and `npm ci` in the
+// image can fail with "Missing/Invalid: h3 … crossws … from lock file".
 import { existsSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { join, relative } from 'node:path'
 
@@ -89,6 +93,26 @@ export function wireAstroConfig(source: string): string {
   return source.slice(0, plugins.index) + line + insert + source.slice(plugins.index + plugins[0].length)
 }
 
+const NPMRC_LINE = 'legacy-peer-deps=true'
+
+export function wireNpmrc(source: string): string {
+  if (/^\s*legacy-peer-deps\s*=\s*true\s*$/m.test(source)) return source
+  if (/^\s*legacy-peer-deps\s*=/m.test(source)) fail('.npmrc sets legacy-peer-deps to something other than true')
+  return source + (source === '' || source.endsWith('\n') ? '' : '\n') + NPMRC_LINE + '\n'
+}
+
+/** Copies .npmrc wherever the Dockerfile copies package*.json (each npm ci needs it). */
+export function wireDockerfile(source: string): string {
+  const copies = /^(COPY[ \t]+)(package\*\.json)((?:[ \t]+\S+)*?)([ \t]+\S+[ \t]*)$/gm
+  let found = false
+  const out = source.replace(copies, (line, copy: string, pkg: string, rest: string, dest: string) => {
+    found = true
+    return /(^|[ \t])\.npmrc([ \t]|$)/.test(rest) ? line : `${copy}${pkg} .npmrc${rest}${dest}`
+  })
+  if (!found) fail('no `COPY package*.json …` line in the Dockerfile; copy .npmrc before npm ci by hand')
+  return out
+}
+
 export function wire(dir: string, spec = `github:visionmediahq/spam-guard#semver:^1.0.0`): string[] {
   const changed: string[] = []
   const write = (rel: string, content: string) => {
@@ -109,6 +133,11 @@ export function wire(dir: string, spec = `github:visionmediahq/spam-guard#semver
   }
   pkg.dependencies = Object.fromEntries(Object.entries(pkg.dependencies).sort(([a], [b]) => a.localeCompare(b)))
   write('package.json', JSON.stringify(pkg, null, 2) + '\n')
+
+  // .npmrc, and the Dockerfile copies it before npm ci.
+  const npmrc = join(dir, '.npmrc')
+  write('.npmrc', wireNpmrc(existsSync(npmrc) ? readFileSync(npmrc, 'utf8') : ''))
+  if (existsSync(join(dir, 'Dockerfile'))) write('Dockerfile', wireDockerfile(readFileSync(join(dir, 'Dockerfile'), 'utf8')))
 
   // Delete the copies and the tests that moved.
   const remove = [
