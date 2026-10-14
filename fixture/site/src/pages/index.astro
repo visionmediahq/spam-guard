@@ -1,0 +1,67 @@
+---
+import '../styles/global.css'
+import SpamNotice from '@visionmediahq/spam-guard/components/SpamNotice.astro'
+import HoneypotField from '@visionmediahq/spam-guard/components/HoneypotField.astro'
+import FormStatus from '@visionmediahq/spam-guard/components/FormStatus.astro'
+
+export const prerender = true
+---
+
+<html lang="sv">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Kontakt</title>
+  </head>
+  <body>
+    <main class="mx-auto max-w-xl p-4">
+      <h1>Kontakt</h1>
+      <SpamNotice phone="000-00 00 00" email="info@fixture.example" />
+      <form id="contact-form" method="post" action="/api/contact" class="relative grid gap-2">
+        <label>Namn <input name="name" required /></label>
+        <label>E-post <input name="email" type="email" required /></label>
+        <label>Meddelande <textarea name="message" required></textarea></label>
+        <HoneypotField />
+        <FormStatus phone="000-00 00 00" email="info@fixture.example" />
+        <p id="form-error" hidden></p>
+        <button type="submit" class="btn">Skicka</button>
+      </form>
+    </main>
+    <script>
+      import { preloadSpamCheck, addSpamToken, spamSubmitted, SpamCheckError } from '@visionmediahq/spam-guard/client'
+
+      const form = document.querySelector<HTMLFormElement>('#contact-form')
+      const error = document.querySelector<HTMLElement>('#form-error')
+      if (form) {
+        preloadSpamCheck(form)
+        let sending = false
+        form.addEventListener('submit', async (event) => {
+          event.preventDefault()
+          if (sending) return
+          sending = true
+          try {
+            const data = new FormData(form)
+            try {
+              await addSpamToken(form, data, 'contact')
+            } catch (err) {
+              if (err instanceof SpamCheckError && error) {
+                error.textContent = 'Kunde inte verifiera. Försök igen.'
+                error.hidden = false
+                return
+              }
+              throw err
+            }
+            const res = await fetch('/api/contact', { method: 'POST', body: data })
+            if (error) {
+              error.textContent = res.ok ? 'Tack!' : 'Meddelandet skickades inte.'
+              error.hidden = false
+            }
+          } finally {
+            spamSubmitted(form)
+            sending = false
+          }
+        })
+      }
+    </script>
+  </body>
+</html>

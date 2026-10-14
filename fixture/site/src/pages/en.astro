@@ -1,0 +1,30 @@
+---
+import '../styles/global.css'
+import SpamNotice from '@visionmediahq/spam-guard/components/SpamNotice.astro'
+import HoneypotField from '@visionmediahq/spam-guard/components/HoneypotField.astro'
+import FormStatus from '@visionmediahq/spam-guard/components/FormStatus.astro'
+
+export const prerender = true
+---
+
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Contact</title>
+  </head>
+  <body>
+    <main class="mx-auto max-w-xl p-4">
+      <h1>Contact</h1>
+      <SpamNotice lang="en" phone="000-00 00 00" email="info@fixture.example" />
+      <form method="post" action="/api/contact" class="relative grid gap-2">
+        <label>Name <input name="name" required /></label>
+        <label>E-mail <input name="email" type="email" required /></label>
+        <label>Message <textarea name="message" required></textarea></label>
+        <HoneypotField />
+        <FormStatus lang="en" phone="000-00 00 00" />
+        <button type="submit" class="btn">Send</button>
+      </form>
+    </main>
+  </body>
+</html>

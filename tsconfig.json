@@ -1,6 +1,6 @@
 {
   "extends": "astro/tsconfigs/strict",
-  "include": ["env.d.ts", "src", "test", "fixture/check.ts", "vitest.config.ts"],
+  "include": ["env.d.ts", "src", "test", "fixture/check.ts", "fixture/resend-stub.ts", "ci", "vitest.config.ts"],
   "exclude": ["node_modules", "fixture/site", "fixture/.work"],
   "compilerOptions": {
     "noUncheckedIndexedAccess": true,

@@ -1,0 +1,95 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      - run: npm test
+
+  # npm pack → install the tarball into fixture/site → build → asserts → start → GET the
+  # re-exported routes → post test with a stubbed Resend → astro dev serves the client.
+  fixture:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - astro: '6.4.8'
+            adapter: '10.1.4'
+          - astro: '7.3.8'
+            adapter: '11.1.7'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run test:fixture -- ${{ matrix.astro }} ${{ matrix.adapter }} --port 5600
+
+  # The real distribution path: astro-starter main wired to this commit as a git dependency,
+  # resolved WITHOUT git inside the starter's unmodified Dockerfile. Needs the repo variable
+  # STARTER_INSTALL=true and the secret STARTER_READ_TOKEN (read-only on visionmediahq/astro-starter).
+  # Not on pull_request: github.sha is then a merge commit that does not exist in the repository.
+  starter-install:
+    if: github.event_name != 'pull_request' && vars.STARTER_INSTALL == 'true'
+    runs-on: ubuntu-latest
+    env:
+      SECRET: ${{ github.run_id }}-0123456789abcdef0123456789abcdef0123456789abcdef
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: visionmediahq/astro-starter
+          token: ${{ secrets.STARTER_READ_TOKEN }}
+          path: starter
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Wire the starter to this commit and write the lockfile
+        run: |
+          node --experimental-strip-types ci/wire-starter.ts ./starter "github:visionmediahq/spam-guard#${{ github.sha }}"
+          cd starter && npm install --package-lock-only
+      - name: npm ci, build, test, npm start
+        working-directory: starter
+        run: |
+          npm ci
+          npm run build
+          npm test -- --passWithNoTests
+          HOST=127.0.0.1 PORT=5600 SITE_URL=https://example.invalid SPAM_PROVIDER=altcha ALTCHA_HMAC_SECRET="$SECRET" npm start &
+          node --experimental-strip-types ../ci/smoke.ts http://127.0.0.1:5600
+          kill %1
+          # No node_modules or dist in the image's build context: the starter has no .dockerignore.
+          rm -rf node_modules dist .astro
+      - name: Build the starter's unmodified Dockerfile (npm ci without git)
+        working-directory: starter
+        run: docker build --build-arg SITE_URL=https://example.invalid -t starter-test .
+      - name: Run it and check the routes and headers
+        run: |
+          docker run -d --name starter -p 127.0.0.1:5601:3000 -e SITE_URL=https://example.invalid -e SPAM_PROVIDER=altcha -e ALTCHA_HMAC_SECRET="$SECRET" starter-test
+          node --experimental-strip-types ci/smoke.ts http://127.0.0.1:5601
+
+  # A skipped starter-install job reads as green. Flag a release tag that was pushed without it.
+  # This cannot take the tag back: starter-install must be green on main BEFORE tagging.
+  release-guard:
+    if: startsWith(github.ref, 'refs/tags/v') && vars.STARTER_INSTALL != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Release tags need the starter-install proof
+        run: |
+          echo "::error::A release tag was pushed but the starter-install job is switched off."
+          echo "Set the repository variable STARTER_INSTALL=true and the secret STARTER_READ_TOKEN, then re-run."
+          exit 1
