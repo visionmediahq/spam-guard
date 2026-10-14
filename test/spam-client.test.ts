@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 
-type Client = typeof import('./spam-client')
+type Client = typeof import('../src/lib/spam-client')
 type Config = { provider: string | null; recaptchaSiteKey: string | null }
 
 let calls: string[]
@@ -40,7 +40,7 @@ function installFetch(): void {
 
 async function load(): Promise<Client> {
   vi.resetModules()
-  const c = await import('./spam-client')
+  const c = await import('../src/lib/spam-client')
   c._setSolverForTests(solver as never)
   return c
 }
@@ -117,7 +117,7 @@ describe('getSpamFields — solving', () => {
     expect(solver).toHaveBeenCalledTimes(1)
   })
 
-  test('one failed solve is retried silently (D15)', async () => {
+  test('one failed solve is retried silently', async () => {
     solver.mockResolvedValueOnce(null)
     const c = await load()
     expect((await c.getSpamFields(makeForm())).altcha).toBeTruthy()
@@ -138,7 +138,7 @@ describe('getSpamFields — solving', () => {
     expect((await c.getSpamFields(makeForm())).altcha).toBeTruthy()
   })
 
-  test('a cached solution with less than 60 s left is solved again (D16)', async () => {
+  test('a cached solution with less than 60 s left is solved again', async () => {
     challengeTtlS = 30
     const c = await load()
     const form = makeForm()
@@ -291,7 +291,7 @@ describe('reCAPTCHA provider', () => {
     config = { provider: 'recaptcha', recaptchaSiteKey: 'SK' }
     fakeGoogle()
     const c = await load()
-    const compat = await import('./recaptcha-client')
+    const compat = await import('../src/lib/recaptcha-client')
     const form = makeForm()
     c.preloadSpamCheck(form)
     compat.preloadRecaptcha(form)
@@ -305,7 +305,7 @@ describe('reCAPTCHA provider', () => {
     config = { provider: 'altcha', recaptchaSiteKey: 'SK' }
     fakeGoogle()
     await load()
-    const compat = await import('./recaptcha-client')
+    const compat = await import('../src/lib/recaptcha-client')
     expect(await compat.getRecaptchaToken()).toBe('')
     const data = new FormData()
     await compat.addRecaptchaToken(data)
@@ -316,7 +316,7 @@ describe('reCAPTCHA provider', () => {
   test('the compat layer keeps its exports and returns empty without a key', async () => {
     config = { provider: 'recaptcha', recaptchaSiteKey: null }
     await load()
-    const compat = await import('./recaptcha-client')
+    const compat = await import('../src/lib/recaptcha-client')
     expect(typeof compat.preloadRecaptcha).toBe('function')
     expect(typeof compat.addRecaptchaToken).toBe('function')
     expect(await compat.getRecaptchaToken()).toBe('')

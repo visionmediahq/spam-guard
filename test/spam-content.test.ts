@@ -1,16 +1,16 @@
 import { describe, expect, test } from 'vitest'
-import { contentFlag } from './spam-content'
+import { contentFlag } from '../src/lib/spam-content'
 
 const MSG = ['message']
 const CYRILLIC = 'Здравствуйте, предлагаем услуги продвижения сайта в поисковых системах'
 
 describe('contentFlag — flagged', () => {
   test('more than two links', () => {
-    expect(contentFlag({ message: 'a https://x.se b https://y.se c www.z.se' }, MSG)).toBe('links')
+    expect(contentFlag({ message: 'a https://x.example b https://y.example c www.z.example' }, MSG)).toBe('links')
   })
 
   test('links are counted across all fields', () => {
-    expect(contentFlag({ name: 'https://x.se', company: 'www.y.se', message: 'se http://z.se' }, MSG)).toBe('links')
+    expect(contentFlag({ name: 'https://x.example', company: 'www.y.example', message: 'se http://z.example' }, MSG)).toBe('links')
   })
 
   test('a message longer than 5000 characters', () => {
@@ -31,13 +31,13 @@ describe('contentFlag — flagged', () => {
   })
 
   test('length wins over links', () => {
-    expect(contentFlag({ message: 'https://a.se https://b.se https://c.se ' + 'x'.repeat(5001) }, MSG)).toBe('length')
+    expect(contentFlag({ message: 'https://a.example https://b.example https://c.example ' + 'x'.repeat(5001) }, MSG)).toBe('length')
   })
 })
 
 describe('contentFlag — not flagged', () => {
   test('exactly two links', () => {
-    expect(contentFlag({ message: 'Se https://www.a.se och https://www.b.se' }, MSG)).toBeUndefined()
+    expect(contentFlag({ message: 'Se https://www.a.example och https://www.b.example' }, MSG)).toBeUndefined()
   })
 
   test('Swedish text with å, ä and ö', () => {

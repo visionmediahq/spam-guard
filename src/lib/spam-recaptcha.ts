@@ -32,7 +32,7 @@ interface VerifyResponse {
   'error-codes'?: string[]
 }
 
-/** Lowercase, punycode (so maskinhjälpinsjön.com matches xn--…), without www. */
+/** Lowercase, punycode (so exempel-åäö.example matches xn--…), without www. */
 function normalizeHost(host: string): string {
   let ascii = host.trim().toLowerCase()
   try {

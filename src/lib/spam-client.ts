@@ -286,7 +286,7 @@ function startSolve(s: FormState): Promise<Solved | null> {
   return s.solving
 }
 
-/** A solution with more than REFRESH_BEFORE_S left; one silent retry (D15, D16). */
+/** A solution with more than REFRESH_BEFORE_S left; one silent retry. */
 async function freshPayload(s: FormState): Promise<string | null> {
   for (let attempt = 0; attempt < 2; attempt++) {
     const r = await startSolve(s)

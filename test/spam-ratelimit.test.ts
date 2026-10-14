@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
-import { RateLimiter } from './spam-ratelimit'
+import { RateLimiter } from '../src/lib/spam-ratelimit'
 
 const TEN_MIN = 10 * 60_000
 

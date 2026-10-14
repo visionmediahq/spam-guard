@@ -1,12 +1,12 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { TEST_SECRET, solvePayload } from './spam-test-utils'
 
-type Mod = typeof import('./spam-altcha')
+type Mod = typeof import('../src/lib/spam-altcha')
 
 async function load(secret: string | undefined = TEST_SECRET): Promise<Mod> {
   vi.stubEnv('ALTCHA_HMAC_SECRET', secret ?? '')
   vi.resetModules()
-  const m = await import('./spam-altcha')
+  const m = await import('../src/lib/spam-altcha')
   m._configureForTests({ cost: 10, counterMin: 1, counterMax: 20 })
   return m
 }
@@ -54,10 +54,10 @@ describe('createAltchaChallenge', () => {
     expect(typeof c.signature).toBe('string')
   })
 
-  test('production difficulty is the Gate A value', async () => {
+  test('production difficulty is the measured value', async () => {
     vi.stubEnv('ALTCHA_HMAC_SECRET', TEST_SECRET)
     vi.resetModules()
-    const m = await import('./spam-altcha')
+    const m = await import('../src/lib/spam-altcha')
     const c = await m.createAltchaChallenge()
     expect(c.parameters.cost).toBe(5000)
   })

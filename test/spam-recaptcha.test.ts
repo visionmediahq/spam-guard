@@ -1,26 +1,26 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 
-type Mod = typeof import('./spam-recaptcha')
+type Mod = typeof import('../src/lib/spam-recaptcha')
 
 /** Import a fresh copy with production behaviour (DEV false). */
 async function load(env: Record<string, string> = {}): Promise<Mod> {
   vi.stubEnv('DEV', false)
   for (const [k, v] of Object.entries(env)) vi.stubEnv(k, v)
   vi.resetModules()
-  return import('./spam-recaptcha')
+  return import('../src/lib/spam-recaptcha')
 }
 
 const KEYS = {
   RECAPTCHA_SECRET_KEY: 'sec',
   PUBLIC_RECAPTCHA_SITE_KEY: 'site',
-  SITE_URL: 'https://kund.se',
+  SITE_URL: 'https://kund.example',
 }
 
 function google(body: object): void {
   vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify(body)))
 }
 
-const GOOD = { success: true, score: 0.9, action: 'contact', hostname: 'www.kund.se' }
+const GOOD = { success: true, score: 0.9, action: 'contact', hostname: 'www.kund.example' }
 
 beforeEach(() => {
   for (const k of [...Object.keys(KEYS), 'RECAPTCHA_ALLOWED_HOSTS']) vi.stubEnv(k, '')

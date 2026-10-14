@@ -9,18 +9,24 @@ interface Props {
   phoneHref?: string
   /** Optional e-mail address for the notice. */
   email?: string
+  /** The page's language: 'sv' (default) or 'en'. */
+  lang?: 'sv' | 'en'
 }
 
-const { phone, phoneHref, email } = Astro.props
+const { phone, phoneHref, email, lang = 'sv' } = Astro.props
+const t =
+  lang === 'en'
+    ? { needsJs: 'This form needs JavaScript. Call us on', or: 'or e-mail' }
+    : { needsJs: 'Formuläret kräver JavaScript. Ring oss på', or: 'eller mejla' }
 const href = telHref(phone, phoneHref)
 ---
 
 <noscript>
   <p class="spam-notice">
-    Formuläret kräver JavaScript. Ring oss på <a href={href}>{phone}</a>{
+    {t.needsJs}{' '}<a href={href}>{phone}</a>{
       email && (
         <>
-          {' '}eller mejla <a href={`mailto:${email}`}>{email}</a>
+          {' '}{t.or}{' '}<a href={`mailto:${email}`}>{email}</a>
         </>
       )
     }.

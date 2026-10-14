@@ -1,44 +1,31 @@
-// Endpoint tests live in src/lib: a *.test.ts under src/pages would become a route.
+// The two routes the package ships, and the whole chain (guard + withFormRedirect)
+// through a test-only form route shaped like a site's contact route.
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { TEST_SECRET, solvePayload } from './spam-test-utils'
-
-const sent: Array<{ subject: string }> = []
-// Set to make the next sends fail the way Resend does: an { error } result, not a throw.
-let resendRejects = false
-vi.mock('resend', () => ({
-  Resend: class {
-    emails = {
-      send: async (msg: { subject: string }) => {
-        if (resendRejects) return { data: null, error: { name: 'validation_error', message: 'domain is not verified' } }
-        sent.push(msg)
-        return { data: { id: 'x' }, error: null }
-      },
-    }
-  },
-}))
 
 const ALTCHA_ENV = {
   SPAM_PROVIDER: 'altcha',
   ALTCHA_HMAC_SECRET: TEST_SECRET,
-  RESEND_API_KEY: 're_test',
-  CONTACT_TO: 'a@kund.se',
 }
 const ALL_KEYS = ['SPAM_PROVIDER', 'ALTCHA_HMAC_SECRET', 'RECAPTCHA_SECRET_KEY', 'PUBLIC_RECAPTCHA_SITE_KEY', 'SITE_URL']
 
 let warn: ReturnType<typeof vi.spyOn>
+let sent: Array<{ subject: string }> = []
 
 async function load(env: Record<string, string>, dev = false) {
   vi.stubEnv('DEV', dev)
   for (const k of ALL_KEYS) vi.stubEnv(k, '')
   for (const [k, v] of Object.entries(env)) vi.stubEnv(k, v)
   vi.resetModules()
-  const altcha = await import('./spam-altcha')
+  const altcha = await import('../src/lib/spam-altcha')
   altcha._configureForTests({ cost: 10, counterMin: 1, counterMax: 20 })
+  const contact = await import('./contact-route')
+  sent = contact.sent
   return {
     altcha,
-    formConfig: await import('../pages/api/form-config'),
-    challenge: await import('../pages/api/altcha-challenge'),
-    contact: await import('../pages/api/contact'),
+    formConfig: await import('../src/routes/form-config'),
+    challenge: await import('../src/routes/altcha-challenge'),
+    contact,
   }
 }
 
@@ -54,8 +41,6 @@ function logLines(): string[] {
 }
 
 beforeEach(() => {
-  sent.length = 0
-  resendRejects = false
   warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
   vi.spyOn(console, 'error').mockImplementation(() => {})
 })
@@ -137,7 +122,7 @@ describe('/api/altcha-challenge', () => {
 
   test('the site-wide cap limits challenges across clients', async () => {
     const { challenge } = await load(ALTCHA_ENV)
-    const limits = await import('./spam-ratelimit')
+    const limits = await import('../src/lib/spam-ratelimit')
     for (let i = 0; i < 600; i++) limits.challengeGlobal.record('all')
     const res = await challenge.GET(ctx('http://localhost/api/altcha-challenge', { xff: '9.9.9.9' }))
     expect(res.status).toBe(429)
@@ -172,7 +157,7 @@ describe('/api/altcha-challenge?fail=', () => {
   })
 })
 
-describe('/api/contact', () => {
+describe('a form route (guard + withFormRedirect)', () => {
   async function post(contact: any, fields: Record<string, string>): Promise<Response> {
     return contact.POST(
       ctx('http://localhost/api/contact', {
@@ -182,12 +167,12 @@ describe('/api/contact', () => {
       })
     )
   }
-  const BASE = { name: 'Anna', email: 'anna@kund.se', message: 'Hej, jag vill ha en offert.' }
+  const BASE = { name: 'Anna', email: 'anna@kund.example', message: 'Hej, jag vill ha en offert.' }
 
   test('a flagged message is sent with the [misstänkt spam] subject prefix', async () => {
     const { altcha, contact } = await load(ALTCHA_ENV)
     const altchaValue = await solvePayload(await altcha.createAltchaChallenge())
-    const res = await post(contact, { ...BASE, message: 'https://a.se https://b.se https://c.se', altcha: altchaValue })
+    const res = await post(contact, { ...BASE, message: 'https://a.example https://b.example https://c.example', altcha: altchaValue })
     expect(res.status).toBe(200)
     expect(sent.map((m) => m.subject)).toEqual(['[misstänkt spam] Kontaktformulär: Anna'])
   })
@@ -199,15 +184,6 @@ describe('/api/contact', () => {
     expect(res.status).toBe(200)
     expect(res.headers.get('Content-Type')).toBe('application/json; charset=utf-8')
     expect(sent.map((m) => m.subject)).toEqual(['Kontaktformulär: Anna'])
-  })
-
-  test('a send Resend rejects is a failure, not a false success', async () => {
-    const { altcha, contact } = await load(ALTCHA_ENV)
-    resendRejects = true
-    const altchaValue = await solvePayload(await altcha.createAltchaChallenge())
-    const res = await post(contact, { ...BASE, altcha: altchaValue })
-    expect(res.status).toBe(500)
-    expect((await res.json()).success).toBe(false)
   })
 
   test('a post without a solution is rejected and nothing is sent', async () => {
@@ -227,7 +203,7 @@ describe('/api/contact', () => {
       })
     )
   }
-  const BROWSER = { Accept: 'text/html,application/xhtml+xml,*/*;q=0.8', Referer: 'https://kund.se/kontakt/' }
+  const BROWSER = { Accept: 'text/html,application/xhtml+xml,*/*;q=0.8', Referer: 'https://kund.example/kontakt/' }
 
   test('a post without JavaScript goes back to the form with #fel, not to raw JSON', async () => {
     const { contact } = await load(ALTCHA_ENV)
@@ -257,7 +233,7 @@ describe('/api/contact', () => {
   })
 
   test('a thrown error still sends a no-JS visitor back to #fel, not to a bare 500 page', async () => {
-    vi.doMock('./spam-guard', () => ({
+    vi.doMock('../src/lib/spam-guard', () => ({
       checkSubmission: () => { throw new Error('boom') },
       checkResponse: () => null,
     }))
@@ -267,7 +243,7 @@ describe('/api/contact', () => {
       const res = await formPost(contact, BASE, BROWSER)
       expect([res.status, res.headers.get('Location')]).toEqual([303, '/kontakt/#fel'])
     } finally {
-      vi.doUnmock('./spam-guard')
+      vi.doUnmock('../src/lib/spam-guard')
     }
   })
 

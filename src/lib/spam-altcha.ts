@@ -18,9 +18,8 @@ const TTL_MS = 2 * 60 * 60_000
 const ALGORITHM = 'PBKDF2/SHA-256'
 const MIN_SECRET_CHARS = 32
 
-// Difficulty measured 2026-10-03 (Gate A): Mac WebKit with one worker solves in
-// ~0.75 s median / 1.05 s worst, four workers in ~0.2–0.3 s. Target: 0.5–1 s on a
-// mid-range phone. Approved 2026-10-04; re-check on a real mid-range phone.
+// Difficulty measured on Mac WebKit: one worker solves in ~0.75 s median / 1.05 s
+// worst, four workers in ~0.2–0.3 s. Target: 0.5–1 s on a mid-range phone.
 let cost = 5000
 let counterMin = 500
 let counterMax = 1500

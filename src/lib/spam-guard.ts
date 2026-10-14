@@ -1,6 +1,6 @@
 // Server-side spam guard for every form API route.
 //
-// Call checkSubmission() (or guardSubmission() for starter-shaped JSON routes)
+// Call checkSubmission() (or guardSubmission() for JSON routes that need no flag)
 // with the parsed request body before validating or sending anything.
 //
 // Layers, in order:
@@ -103,8 +103,8 @@ function normalizeIp(ip: string): string {
 }
 
 /**
- * The visitor's IP. Traefik appends the peer to X-Forwarded-For, so the last hop
- * is the one to trust. Behind Cloudflare that peer is a Cloudflare edge, and the
+ * The visitor's IP. The reverse proxy appends the peer to X-Forwarded-For, so the
+ * last hop is the one to trust. Behind Cloudflare that peer is a Cloudflare edge, and the
  * visitor is in CF-Connecting-IP — trusted only when the peer is in Cloudflare's ranges.
  */
 export function clientIp(request: Request): string {
@@ -208,7 +208,7 @@ export async function checkSubmission(
     return { reason: 'misconfigured' }
   }
 
-  // 3. Rate limit: look only (D11).
+  // 3. Rate limit: look only.
   const key = request ? ipKey(clientIp(request)) : null
   if (key) {
     const wait = submitLimiter.wait(key)

@@ -1,6 +1,6 @@
 ---
 // The reply to a form posted without JavaScript: the API route sends the browser back
-// to this page with #skickat, #fel or #vanta (src/lib/form-redirect.ts), and the
+// to this page with #skickat, #fel or #vanta (form-redirect.ts), and the
 // matching block shows through CSS :target. Place inside every <form>, next to
 // <HoneypotField />. The form script hides the blocks when it sends (getSpamFields /
 // addSpamToken) and again in spamSubmitted(), so a stale fragment never contradicts it.
@@ -21,9 +21,25 @@ interface Props {
    * at the form that was sent and the ids stay unique.
    */
   form?: string
+  /** The page's language: 'sv' (default) or 'en'. */
+  lang?: 'sv' | 'en'
 }
 
-const { phone, phoneHref, email, form } = Astro.props
+const { phone, phoneHref, email, form, lang = 'sv' } = Astro.props
+const t =
+  lang === 'en'
+    ? {
+        sent: 'Thank you! We will get back to you as soon as we can.',
+        failed: 'Your message was not sent. Call us on',
+        or: 'or e-mail',
+        wait: 'You have sent several messages in a short time. Please wait a while, or call us on',
+      }
+    : {
+        sent: 'Tack! Vi hör av oss så snart vi kan.',
+        failed: 'Meddelandet skickades inte. Ring oss på',
+        or: 'eller mejla',
+        wait: 'Du har skickat flera meddelanden på kort tid. Vänta en stund, eller ring oss på',
+      }
 // The server only accepts names like this; a mismatch would silently show nothing, so fail the build.
 if (form !== undefined && !FORM_NAME.test(form)) {
   throw new Error(`<FormStatus form="${form}" />: use lowercase letters, digits and '-', e.g. "offert".`)
@@ -36,11 +52,11 @@ const block = `${FORM_STATUS_CLASS} alert hidden target:grid scroll-mt-40`
 
 <input type="hidden" name={FORM_RETURN_FIELD} value={Astro.url.pathname} />
 {form && <input type="hidden" name={FORM_STATUS_FIELD} value={form} />}
-<p id={id('skickat')} class={`${block} alert-success`} role="status">Tack! Vi hör av oss så snart vi kan.</p>
+<p id={id('skickat')} class={`${block} alert-success`} role="status">{t.sent}</p>
 <p id={id('fel')} class={`${block} alert-error`} role="alert">
-  Meddelandet skickades inte. Ring oss på <a class="link font-semibold" href={href} onclick="window.umami?.track('phone_click')">{phone}</a>{email && <> eller mejla <a class="link font-semibold" href={`mailto:${email}`} onclick="window.umami?.track('email_click')">{email}</a></>}.
+  {t.failed}{' '}<a class="link font-semibold" href={href} onclick="window.umami?.track('phone_click')">{phone}</a>{email && <>{' '}{t.or}{' '}<a class="link font-semibold" href={`mailto:${email}`} onclick="window.umami?.track('email_click')">{email}</a></>}.
 </p>
 <p id={id('vanta')} class={`${block} alert-warning`} role="alert">
-  Du har skickat flera meddelanden på kort tid. Vänta en stund, eller ring oss på
+  {t.wait}
   <a class="link font-semibold" href={href} onclick="window.umami?.track('phone_click')">{phone}</a>.
 </p>

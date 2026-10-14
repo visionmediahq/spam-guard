@@ -1,0 +1,6 @@
+node_modules/
+dist/
+.astro/
+fixture/.work/
+*.tgz
+.DS_Store

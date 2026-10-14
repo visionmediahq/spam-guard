@@ -1,0 +1,50 @@
+{
+  "name": "@visionmediahq/spam-guard",
+  "version": "1.0.0",
+  "description": "Spam protection for Vision Media's Astro site forms: honeypot, reCAPTCHA v3 or self-hosted ALTCHA, rate limit, content flags, and no-JS form replies.",
+  "type": "module",
+  "private": true,
+  "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/visionmediahq/spam-guard.git"
+  },
+  "homepage": "https://github.com/visionmediahq/spam-guard#readme",
+  "files": [
+    "src"
+  ],
+  "exports": {
+    ".": "./src/lib/spam-guard.ts",
+    "./client": "./src/lib/spam-client.ts",
+    "./recaptcha-client": "./src/lib/recaptcha-client.ts",
+    "./components/*": "./src/components/*",
+    "./routes/form-config": "./src/routes/form-config.ts",
+    "./routes/altcha-challenge": "./src/routes/altcha-challenge.ts",
+    "./form-redirect": "./src/lib/form-redirect.ts",
+    "./env": "./src/lib/runtime-env.ts",
+    "./phone": "./src/lib/phone.ts",
+    "./fields": "./src/lib/spam-fields.ts"
+  },
+  "scripts": {
+    "check": "tsc --noEmit",
+    "test": "vitest run",
+    "test:fixture": "node --experimental-strip-types fixture/check.ts"
+  },
+  "peerDependencies": {
+    "astro": "^6.0.0 || ^7.0.0"
+  },
+  "dependencies": {
+    "altcha": "3.2.4",
+    "altcha-lib": "2.5.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22",
+    "astro": "^7.3.8",
+    "jsdom": "29.1.1",
+    "typescript": "5.9.3",
+    "vitest": "4.1.11"
+  },
+  "engines": {
+    "node": ">=22.6.0"
+  }
+}

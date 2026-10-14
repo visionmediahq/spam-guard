@@ -1,8 +1,8 @@
 import type { APIRoute } from 'astro'
-import { altchaConfigured, createAltchaChallenge } from '../../lib/spam-altcha'
-import { CLIENT_FAIL_REASONS } from '../../lib/spam-fields'
-import { clientIp, ipKey, log, provider } from '../../lib/spam-guard'
-import { challengeGlobal, challengeLimiter } from '../../lib/spam-ratelimit'
+import { altchaConfigured, createAltchaChallenge } from '../lib/spam-altcha'
+import { CLIENT_FAIL_REASONS } from '../lib/spam-fields'
+import { clientIp, ipKey, log, provider } from '../lib/spam-guard'
+import { challengeGlobal, challengeLimiter } from '../lib/spam-ratelimit'
 
 // GET /api/altcha-challenge — a fresh signed ALTCHA challenge for the browser
 // to solve (spam-client.ts). Rate-limited per client and for the whole site,
@@ -11,7 +11,10 @@ import { challengeGlobal, challengeLimiter } from '../../lib/spam-ratelimit'
 // GET /api/altcha-challenge?fail=<reason> — the browser reports that it could
 // not produce a solution. Logged as one `client-fail` line; only the fixed
 // reasons in CLIENT_FAIL_REASONS are logged, anything else is dropped.
-export const prerender = false
+//
+// Mount at src/pages/api/altcha-challenge.ts (the browser helper calls that path):
+//   export { GET } from '@visionmediahq/spam-guard/routes/altcha-challenge'
+//   export const prerender = false   (Astro reads it from the page file only)
 
 const failReasons: ReadonlySet<string> = new Set(CLIENT_FAIL_REASONS)
 
