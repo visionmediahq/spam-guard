@@ -25,8 +25,14 @@ Requires Astro 6 or 7 with `output: 'server'` (Node adapter), Tailwind 4 and Dai
 
 Run `npm install` on a machine with git and **commit `package-lock.json`**. Builds without git
 (Docker) then download the pinned commit as a tarball with `npm ci`; an install without a lockfile
-fails there. Keep `.npmrc` with `legacy-peer-deps=true` (altcha-lib's optional peer resolves
-differently per npm version) and copy it before `npm ci` in the Dockerfile.
+fails there. That download needs no token only because this repo is public, and it needs GitHub
+reachable: if it isn't, the deploy's build fails and the running container keeps serving.
+
+The site needs `.npmrc` with `legacy-peer-deps=true`, copied before every `npm ci` in the
+Dockerfile (`COPY package*.json .npmrc ./`); add both if the site lacks them, then write the
+lockfile. Without it, Astro's h3 1.x (via unstorage) clashes with altcha-lib's optional h3 2 peer:
+npm 10 and 11 resolve that differently, and `npm ci` in the image can stop with "Missing" or
+"Invalid" h3 / crossws "from lock file", whichever npm wrote the lockfile.
 
 The package owns `altcha` and `altcha-lib`: remove them from the site's own dependencies.
 
@@ -169,7 +175,8 @@ Every form must use `/client` (not the reCAPTCHA compat helpers). Set `SPAM_PROV
 ## Upgrading
 
 Sites depend on `semver:^1.0.0`, so a site picks up a new 1.x tag at its next `npm install`
-(`npm install --package-lock-only @visionmediahq/spam-guard` updates only the lockfile). Read
+(`npm install --package-lock-only @visionmediahq/spam-guard` updates only the lockfile; run it with
+the site's `.npmrc` in place, see [Install](#install)). Read
 `CHANGELOG.md`: each version says whether a site needs to change anything.
 
 ## Development
