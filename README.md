@@ -179,6 +179,7 @@ npm ci
 npm run check                                   # tsc
 npm test                                        # vitest
 npm run test:fixture -- 7.3.8 11.1.7            # pack → install into fixture/site → build, start, post test
+npm run test:pack -- 7.3.8 11.1.7               # the same (astro-consent's name for it)
 node --experimental-strip-types ci/wire-starter.ts <site dir> [dependency spec]   # copies → package
 ```
 

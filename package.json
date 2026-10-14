@@ -28,7 +28,8 @@
   "scripts": {
     "check": "tsc --noEmit",
     "test": "vitest run",
-    "test:fixture": "node --experimental-strip-types fixture/check.ts"
+    "test:fixture": "node --experimental-strip-types fixture/check.ts",
+    "test:pack": "npm run test:fixture --"
   },
   "peerDependencies": {
     "astro": "^6.0.0 || ^7.0.0"
