@@ -11,7 +11,8 @@
 //   src/pages/api/form-config.ts, altcha-challenge.ts   → re-exports + prerender = false
 //   every other src file: imports of the copies → package entry points
 //   deletes the copies and the tests that moved into the package
-// Does not touch package-lock.json: run npm install afterwards.
+// Does not touch package-lock.json: afterwards run `npx npm@10 install --package-lock-only` (the
+// Docker images' npm; a lockfile from npm 11 can fail their `npm ci` on altcha-lib's optional peers).
 import { existsSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { join, relative } from 'node:path'
 

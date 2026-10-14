@@ -26,7 +26,10 @@ Requires Astro 6 or 7 with `output: 'server'` (Node adapter), Tailwind 4 and Dai
 Run `npm install` on a machine with git and **commit `package-lock.json`**. Builds without git
 (Docker) then download the pinned commit as a tarball with `npm ci`; an install without a lockfile
 fails there. Keep `.npmrc` with `legacy-peer-deps=true` (altcha-lib's optional peer resolves
-differently per npm version) and copy it before `npm ci` in the Dockerfile.
+differently per npm version) and copy it before `npm ci` in the Dockerfile. A site without that
+`.npmrc` must write its lockfile with the npm its Docker image runs (npm 10 on Node 22):
+`npx npm@10 install --package-lock-only`. A lockfile from npm 11 leaves out altcha-lib's optional
+peers, and npm 10's `npm ci` then stops with "Missing: h3@2.0.2 from lock file".
 
 The package owns `altcha` and `altcha-lib`: remove them from the site's own dependencies.
 
@@ -169,7 +172,8 @@ Every form must use `/client` (not the reCAPTCHA compat helpers). Set `SPAM_PROV
 ## Upgrading
 
 Sites depend on `semver:^1.0.0`, so a site picks up a new 1.x tag at its next `npm install`
-(`npm install --package-lock-only @visionmediahq/spam-guard` updates only the lockfile). Read
+(`npm install --package-lock-only @visionmediahq/spam-guard` updates only the lockfile; see
+[Install](#install) for which npm). Read
 `CHANGELOG.md`: each version says whether a site needs to change anything.
 
 ## Development
