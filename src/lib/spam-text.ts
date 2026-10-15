@@ -43,7 +43,11 @@ const TEXT: Record<Lang, SpamText> = {
   },
 }
 
-/** The texts for `lang`, with the site's own parts (`text`) in place of the defaults. */
+/**
+ * The texts for `lang`, with the site's own parts (`text`) in place of the defaults. Any other
+ * `lang` gives Swedish, as 1.0.0 did; a part given as undefined or '' keeps its default.
+ */
 export function spamText(lang: Lang = 'sv', text: Partial<SpamText> = {}): SpamText {
-  return { ...TEXT[lang], ...text }
+  const own = Object.fromEntries(Object.entries(text).filter(([, value]) => typeof value === 'string' && value !== ''))
+  return { ...(TEXT[lang] ?? TEXT.sv), ...own }
 }

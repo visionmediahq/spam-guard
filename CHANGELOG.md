@@ -8,8 +8,8 @@ Site action needed: no. Sites that pass neither new option render the same as 1.
 from the fix below.
 
 - `SpamNotice` and `FormStatus`: `phone` is optional. Without it, the notice and the replies
-  point to `email` ("Mejla oss på …" / "E-mail us at …"); one of the two is required, or the
-  build stops with a message.
+  point to `email` ("Mejla oss på …" / "E-mail us at …"); one of the two is required: without
+  both the page fails to render (the build, for a prerendered page) with a message.
 - `SpamNotice` and `FormStatus`: `text` replaces any part of the wording, for a site with its own
   voice (`{ sent: 'Tack! Jag hör av mig så snart jag kan.' }`). Parts and defaults in the README.
 - Fix: under Astro 7 the "too many messages" reply had no space before the phone link

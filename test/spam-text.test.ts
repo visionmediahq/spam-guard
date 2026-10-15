@@ -19,4 +19,9 @@ describe('spamText', () => {
     expect(t.call).toBe('Please call')
     expect(t.or).toBe('or e-mail')
   })
+  it('falls back to Swedish for another lang, and keeps defaults for empty parts', () => {
+    expect(spamText('de' as never).sent).toBe('Tack! Vi hör av oss så snart vi kan.')
+    expect(spamText('sv', { sent: undefined, call: '' }).sent).toBe('Tack! Vi hör av oss så snart vi kan.')
+    expect(spamText('sv', { sent: undefined, call: '' }).call).toBe('Ring oss på')
+  })
 })
