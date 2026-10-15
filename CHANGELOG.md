@@ -2,6 +2,19 @@
 
 Each version says whether a site needs to change anything after upgrading.
 
+## 1.1.0
+
+Site action needed: no. Sites that pass neither new option render the same as 1.0.0, apart
+from the fix below.
+
+- `SpamNotice` and `FormStatus`: `phone` is optional. Without it, the notice and the replies
+  point to `email` ("Mejla oss på …" / "E-mail us at …"); one of the two is required, or the
+  build stops with a message.
+- `SpamNotice` and `FormStatus`: `text` replaces any part of the wording, for a site with its own
+  voice (`{ sent: 'Tack! Jag hör av mig så snart jag kan.' }`). Parts and defaults in the README.
+- Fix: under Astro 7 the "too many messages" reply had no space before the phone link
+  ("ring oss på063-…"). The space is now explicit.
+
 ## 1.0.0
 
 First release: the spam guard from astro-starter (main at d843fa4) as a package. Site action

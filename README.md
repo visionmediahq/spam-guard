@@ -91,11 +91,35 @@ The package owns `altcha` and `altcha-lib`: remove them from the site's own depe
 
    | Prop | Components | Meaning |
    |---|---|---|
-   | `phone` | SpamNotice, FormStatus | Phone number as displayed. |
+   | `phone` | SpamNotice, FormStatus | Phone number as displayed. Without one, the texts point to `email`. |
    | `phoneHref` | SpamNotice, FormStatus | `tel:` link when the displayed number can't be turned into one. |
-   | `email` | SpamNotice, FormStatus | Optional e-mail address in the message. |
+   | `email` | SpamNotice, FormStatus | E-mail address in the message; required when there is no `phone`. |
    | `lang` | SpamNotice, FormStatus | `'sv'` (default) or `'en'`. |
+   | `text` | SpamNotice, FormStatus | The site's own wording for any part of the texts (from 1.1.0), see below. |
    | `form` | FormStatus | Only with more than one form on a page: a name per form (`a-z`, `0-9`, `-`), so the reply shows at the form that was sent (`#offert-fel`). |
+
+   A site with its own voice replaces parts of the texts and keeps the rest. Pass the same
+   object to both components; each sentence is built from these parts around the links
+   (`src/lib/spam-text.ts` has the defaults):
+
+   | Part | Swedish default | Used in |
+   |---|---|---|
+   | `needsJs` | Formuläret kräver JavaScript. | notice |
+   | `call` | Ring oss på | notice, not sent (before the phone link) |
+   | `or` | eller mejla | notice, not sent (before the e-mail link) |
+   | `mail` | Mejla oss på | notice, not sent, when there is no phone |
+   | `sent` | Tack! Vi hör av oss så snart vi kan. | sent |
+   | `failed` | Meddelandet skickades inte. | not sent |
+   | `wait` | Du har skickat flera meddelanden på kort tid. | too many messages |
+   | `waitCall` / `waitMail` | Vänta en stund, eller ring oss på / … mejla oss på | too many messages |
+
+   ```astro
+   ---
+   const text = { call: 'Ring', sent: 'Tack! Jag hör av mig så snart jag kan.' }
+   ---
+   <SpamNotice phone="063-12 34 56" text={text} />
+   <FormStatus phone="063-12 34 56" text={text} />
+   ```
 
 2. **Submit script.**
 

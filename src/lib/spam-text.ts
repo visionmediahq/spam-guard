@@ -1,0 +1,49 @@
+// The words SpamNotice and FormStatus show. Each sentence is built from these parts around the
+// links, so a site can replace any part (`text` prop) and keep the rest:
+//   notice      {needsJs} {call} <phone>[ {or} <e-mail>].     without a phone: {needsJs} {mail} <e-mail>.
+//   sent        {sent}
+//   not sent    {failed} {call} <phone>[ {or} <e-mail>].      without a phone: {failed} {mail} <e-mail>.
+//   wait        {wait} {waitCall} <phone>.                     without a phone: {wait} {waitMail} <e-mail>.
+export interface SpamText {
+  needsJs: string
+  call: string
+  or: string
+  mail: string
+  sent: string
+  failed: string
+  wait: string
+  waitCall: string
+  waitMail: string
+}
+
+export type Lang = 'sv' | 'en'
+
+const TEXT: Record<Lang, SpamText> = {
+  sv: {
+    needsJs: 'Formuläret kräver JavaScript.',
+    call: 'Ring oss på',
+    or: 'eller mejla',
+    mail: 'Mejla oss på',
+    sent: 'Tack! Vi hör av oss så snart vi kan.',
+    failed: 'Meddelandet skickades inte.',
+    wait: 'Du har skickat flera meddelanden på kort tid.',
+    waitCall: 'Vänta en stund, eller ring oss på',
+    waitMail: 'Vänta en stund, eller mejla oss på',
+  },
+  en: {
+    needsJs: 'This form needs JavaScript.',
+    call: 'Call us on',
+    or: 'or e-mail',
+    mail: 'E-mail us at',
+    sent: 'Thank you! We will get back to you as soon as we can.',
+    failed: 'Your message was not sent.',
+    wait: 'You have sent several messages in a short time.',
+    waitCall: 'Please wait a while, or call us on',
+    waitMail: 'Please wait a while, or e-mail us at',
+  },
+}
+
+/** The texts for `lang`, with the site's own parts (`text`) in place of the defaults. */
+export function spamText(lang: Lang = 'sv', text: Partial<SpamText> = {}): SpamText {
+  return { ...TEXT[lang], ...text }
+}
