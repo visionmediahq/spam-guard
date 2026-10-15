@@ -75,8 +75,8 @@ export function rewriteImports(source: string, file: string): string {
 export function wireCss(source: string): string {
   if (source.includes(SOURCE_LINE)) return source
   // After the daisyui plugin, including its { … } options block when it spans several lines.
-  const plugin = source.match(/^@plugin "daisyui"[^\n{]*(\{[\s\S]*?\n\})?[^\n]*\n?/m)
-  const anchor = plugin ?? source.match(/^@import "tailwindcss"[^\n]*\n?/m)
+  const plugin = source.match(/^@plugin ["']daisyui["'][^\n{]*(\{[\s\S]*?\n\})?[^\n]*\n?/m)
+  const anchor = plugin ?? source.match(/^@import ["']tailwindcss["'][^\n]*\n?/m)
   if (!anchor || anchor.index === undefined) fail('no @import "tailwindcss" in the stylesheet')
   const end = anchor.index + anchor[0].length
   const before = source.slice(0, end) + (anchor[0].endsWith('\n') ? '' : '\n')
@@ -165,7 +165,7 @@ export function wire(dir: string, spec = `github:visionmediahq/spam-guard#semver
   }
 
   // Tailwind: the stylesheet(s) that load Tailwind.
-  const sheets = filesUnder(join(dir, 'src')).filter((f) => f.endsWith('.css') && /@import "tailwindcss"/.test(readFileSync(f, 'utf8')))
+  const sheets = filesUnder(join(dir, 'src')).filter((f) => f.endsWith('.css') && /@import ["']tailwindcss["']/.test(readFileSync(f, 'utf8')))
   if (sheets.length === 0) fail('no stylesheet with @import "tailwindcss" under src/')
   for (const path of sheets) write(relative(dir, path), wireCss(readFileSync(path, 'utf8')))
 

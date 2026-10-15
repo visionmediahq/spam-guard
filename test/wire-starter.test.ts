@@ -16,6 +16,13 @@ describe('wireCss', () => {
     )
   })
 
+  it('reads single-quoted imports and plugins', () => {
+    expect(wireCss("@import 'tailwindcss';\n.a {}\n")).toBe(`@import 'tailwindcss';\n${SOURCE}\n.a {}\n`)
+    expect(wireCss("@import 'tailwindcss';\n@plugin 'daisyui' {\n  logs: false;\n}\n")).toBe(
+      `@import 'tailwindcss';\n@plugin 'daisyui' {\n  logs: false;\n}\n${SOURCE}\n`,
+    )
+  })
+
   it('goes after the tailwind import without daisyui, and only once', () => {
     const out = wireCss('@import "tailwindcss";\n.a {}\n')
     expect(out).toBe(`@import "tailwindcss";\n${SOURCE}\n.a {}\n`)
