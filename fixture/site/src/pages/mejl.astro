@@ -1,0 +1,32 @@
+---
+// No phone number, and the site's own wording for some parts (v1.1).
+import '../styles/global.css'
+import SpamNotice from '@visionmediahq/spam-guard/components/SpamNotice.astro'
+import HoneypotField from '@visionmediahq/spam-guard/components/HoneypotField.astro'
+import FormStatus from '@visionmediahq/spam-guard/components/FormStatus.astro'
+
+export const prerender = true
+const text = { mail: 'Mejla oss i stället på', sent: 'Tack! Jag hör av mig så snart jag kan.' }
+---
+
+<html lang="sv">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Mejl</title>
+  </head>
+  <body>
+    <main class="mx-auto max-w-xl p-4">
+      <h1>Kontakt</h1>
+      <SpamNotice email="info@fixture.example" text={text} />
+      <form method="post" action="/api/contact" class="relative grid gap-2">
+        <label>Namn <input name="name" required /></label>
+        <label>E-post <input name="email" type="email" required /></label>
+        <label>Meddelande <textarea name="message" required></textarea></label>
+        <HoneypotField />
+        <FormStatus email="info@fixture.example" text={text} />
+        <button type="submit" class="btn">Skicka</button>
+      </form>
+    </main>
+  </body>
+</html>

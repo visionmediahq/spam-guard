@@ -2,33 +2,44 @@
 // Shown only when JavaScript is off: the spam check needs JavaScript (ALTCHA and
 // reCAPTCHA alike), so a post without it is rejected. Place above every form.
 import { telHref } from '../lib/phone'
+import { spamText, type Lang, type SpamText } from '../lib/spam-text'
 interface Props {
-  /** Phone number as displayed, e.g. "063-12 34 56". */
-  phone: string
+  /** Phone number as displayed, e.g. "063-12 34 56". Without one, the notice points to `email`. */
+  phone?: string
   /** Optional tel: link when the display form can't be turned into one, e.g. "tel:+4663123456". */
   phoneHref?: string
-  /** Optional e-mail address for the notice. */
+  /** E-mail address for the notice; required when there is no phone. */
   email?: string
   /** The page's language: 'sv' (default) or 'en'. */
-  lang?: 'sv' | 'en'
+  lang?: Lang
+  /** The site's own wording for any part of the texts (see src/lib/spam-text.ts). */
+  text?: Partial<SpamText>
 }
 
-const { phone, phoneHref, email, lang = 'sv' } = Astro.props
-const t =
-  lang === 'en'
-    ? { needsJs: 'This form needs JavaScript. Call us on', or: 'or e-mail' }
-    : { needsJs: 'Formuläret kräver JavaScript. Ring oss på', or: 'eller mejla' }
-const href = telHref(phone, phoneHref)
+const { phone, phoneHref, email, lang = 'sv', text } = Astro.props
+if (!phone && !email) throw new Error('<SpamNotice />: give a phone number, an e-mail address, or both.')
+const t = spamText(lang, text)
+const href = phone ? telHref(phone, phoneHref) : undefined
 ---
 
 <noscript>
   <p class="spam-notice">
-    {t.needsJs}{' '}<a href={href}>{phone}</a>{
-      email && (
+    {
+      phone ? (
         <>
-          {' '}{t.or}{' '}<a href={`mailto:${email}`}>{email}</a>
+          {`${t.needsJs} ${t.call}`}{' '}<a href={href}>{phone}</a>{
+            email && (
+              <>
+                {' '}{t.or}{' '}<a href={`mailto:${email}`}>{email}</a>
+              </>
+            )
+          }.
+        </>
+      ) : (
+        <>
+          {`${t.needsJs} ${t.mail}`}{' '}<a href={`mailto:${email}`}>{email}</a>.
         </>
       )
-    }.
+    }
   </p>
 </noscript>

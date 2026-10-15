@@ -7,13 +7,14 @@
 import { telHref } from '../lib/phone'
 import { FORM_STATUS_CLASS } from '../lib/spam-fields'
 import { FORM_NAME, FORM_RETURN_FIELD, FORM_STATUS_FIELD } from '../lib/form-redirect'
+import { spamText, type Lang, type SpamText } from '../lib/spam-text'
 
 interface Props {
-  /** Phone number as displayed, e.g. "063-12 34 56". */
-  phone: string
+  /** Phone number as displayed, e.g. "063-12 34 56". Without one, the replies point to `email`. */
+  phone?: string
   /** Optional tel: link when the display form can't be turned into one, e.g. "tel:+4663123456". */
   phoneHref?: string
-  /** Optional e-mail address for the error message. */
+  /** E-mail address for the error messages; required when there is no phone. */
   email?: string
   /**
    * Only on a page with more than one form: a short name per form (lowercase letters,
@@ -22,29 +23,20 @@ interface Props {
    */
   form?: string
   /** The page's language: 'sv' (default) or 'en'. */
-  lang?: 'sv' | 'en'
+  lang?: Lang
+  /** The site's own wording for any part of the texts (see src/lib/spam-text.ts). */
+  text?: Partial<SpamText>
 }
 
-const { phone, phoneHref, email, form, lang = 'sv' } = Astro.props
-const t =
-  lang === 'en'
-    ? {
-        sent: 'Thank you! We will get back to you as soon as we can.',
-        failed: 'Your message was not sent. Call us on',
-        or: 'or e-mail',
-        wait: 'You have sent several messages in a short time. Please wait a while, or call us on',
-      }
-    : {
-        sent: 'Tack! Vi hör av oss så snart vi kan.',
-        failed: 'Meddelandet skickades inte. Ring oss på',
-        or: 'eller mejla',
-        wait: 'Du har skickat flera meddelanden på kort tid. Vänta en stund, eller ring oss på',
-      }
+const { phone, phoneHref, email, form, lang = 'sv', text } = Astro.props
+if (!phone && !email) throw new Error('<FormStatus />: give a phone number, an e-mail address, or both.')
+const t = spamText(lang, text)
 // The server only accepts names like this; a mismatch would silently show nothing, so fail the build.
 if (form !== undefined && !FORM_NAME.test(form)) {
   throw new Error(`<FormStatus form="${form}" />: use lowercase letters, digits and '-', e.g. "offert".`)
 }
-const href = telHref(phone, phoneHref)
+const href = phone ? telHref(phone, phoneHref) : undefined
+const mailto = `mailto:${email}`
 const id = (result: string) => (form ? `${form}-${result}` : result)
 // scroll-mt leaves room for a sticky header when the browser jumps to the fragment.
 const block = `${FORM_STATUS_CLASS} alert hidden target:grid scroll-mt-40`
@@ -53,10 +45,25 @@ const block = `${FORM_STATUS_CLASS} alert hidden target:grid scroll-mt-40`
 <input type="hidden" name={FORM_RETURN_FIELD} value={Astro.url.pathname} />
 {form && <input type="hidden" name={FORM_STATUS_FIELD} value={form} />}
 <p id={id('skickat')} class={`${block} alert-success`} role="status">{t.sent}</p>
-<p id={id('fel')} class={`${block} alert-error`} role="alert">
-  {t.failed}{' '}<a class="link font-semibold" href={href} onclick="window.umami?.track('phone_click')">{phone}</a>{email && <>{' '}{t.or}{' '}<a class="link font-semibold" href={`mailto:${email}`} onclick="window.umami?.track('email_click')">{email}</a></>}.
-</p>
-<p id={id('vanta')} class={`${block} alert-warning`} role="alert">
-  {t.wait}
-  <a class="link font-semibold" href={href} onclick="window.umami?.track('phone_click')">{phone}</a>.
-</p>
+{
+  phone ? (
+    <p id={id('fel')} class={`${block} alert-error`} role="alert">
+      {`${t.failed} ${t.call}`}{' '}<a class="link font-semibold" href={href} onclick="window.umami?.track('phone_click')">{phone}</a>{email && <>{' '}{t.or}{' '}<a class="link font-semibold" href={mailto} onclick="window.umami?.track('email_click')">{email}</a></>}.
+    </p>
+  ) : (
+    <p id={id('fel')} class={`${block} alert-error`} role="alert">
+      {`${t.failed} ${t.mail}`}{' '}<a class="link font-semibold" href={mailto} onclick="window.umami?.track('email_click')">{email}</a>.
+    </p>
+  )
+}
+{
+  phone ? (
+    <p id={id('vanta')} class={`${block} alert-warning`} role="alert">
+      {`${t.wait} ${t.waitCall}`}{' '}<a class="link font-semibold" href={href} onclick="window.umami?.track('phone_click')">{phone}</a>.
+    </p>
+  ) : (
+    <p id={id('vanta')} class={`${block} alert-warning`} role="alert">
+      {`${t.wait} ${t.waitMail}`}{' '}<a class="link font-semibold" href={mailto} onclick="window.umami?.track('email_click')">{email}</a>.
+    </p>
+  )
+}

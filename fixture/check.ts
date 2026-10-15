@@ -187,6 +187,15 @@ try {
   assert(sv.includes('Formuläret kräver JavaScript') && sv.includes('name="hp_x7q2"') && sv.includes('id="fel"'), 'sv page lacks the components')
   assert(en.includes('This form needs JavaScript. Call us on') && en.includes('Your message was not sent.'), 'en page lacks the English texts')
   assert(!en.includes('Formuläret kräver'), 'en page has the Swedish notice')
+  // Astro 7 drops a line break between text and a link: the space must be explicit.
+  assert(sv.includes('eller ring oss på <a') && en.includes('or call us on <a'), 'wait message: no space before the phone link')
+  // v1.1: no phone number, and the site's own wording for some parts.
+  const mail = readFileSync(join(dir, 'dist/client/mejl/index.html'), 'utf8').replace(/\s+/g, ' ')
+  assert(mail.includes('Formuläret kräver JavaScript. Mejla oss i stället på <a href="mailto:info@fixture.example">'), 'mejl page: notice without a phone')
+  assert(mail.includes('Tack! Jag hör av mig så snart jag kan.'), 'mejl page: own sent text')
+  assert(mail.includes('Meddelandet skickades inte. Mejla oss i stället på <a class="link font-semibold" href="mailto:info@fixture.example"'), 'mejl page: error without a phone')
+  assert(mail.includes('Vänta en stund, eller mejla oss på <a class="link font-semibold" href="mailto:info@fixture.example"'), 'mejl page: wait without a phone')
+  assert(!mail.includes('tel:'), 'mejl page links a phone number')
 
   // The re-exported routes answer at runtime, with the settings from the runtime environment only.
   // Resend is stubbed (resend-stub.ts): nothing leaves the machine.
