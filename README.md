@@ -91,9 +91,9 @@ The package owns `altcha` and `altcha-lib`: remove them from the site's own depe
 
    | Prop | Components | Meaning |
    |---|---|---|
-   | `phone` | SpamNotice, FormStatus | Phone number as displayed. Without one, the texts point to `email`. |
+   | `phone` | SpamNotice, FormStatus | Phone number as displayed. Without one, the texts point to `email`; without either, they ask the visitor to turn on JavaScript and try again (from 1.2.0). |
    | `phoneHref` | SpamNotice, FormStatus | `tel:` link when the displayed number can't be turned into one. |
-   | `email` | SpamNotice, FormStatus | E-mail address in the message; required when there is no `phone`. |
+   | `email` | SpamNotice, FormStatus | Optional e-mail address in the message. |
    | `lang` | SpamNotice, FormStatus | `'sv'` (default) or `'en'`. |
    | `text` | SpamNotice, FormStatus | The site's own wording for any part of the texts (from 1.1.0), see below. |
    | `form` | FormStatus | Only with more than one form on a page: a name per form (`a-z`, `0-9`, `-`), so the reply shows at the form that was sent (`#offert-fel`). |
@@ -112,6 +112,7 @@ The package owns `altcha` and `altcha-lib`: remove them from the site's own depe
    | `failed` | Meddelandet skickades inte. | not sent |
    | `wait` | Du har skickat flera meddelanden på kort tid. | too many messages |
    | `waitCall` / `waitMail` | Vänta en stund, eller ring oss på / … mejla oss på | too many messages |
+   | `turnOn` / `retry` / `waitRetry` | Slå på det för att skicka ett meddelande. / Formuläret kräver JavaScript: slå på det och försök igen. / Vänta en stund och försök igen. | notice / not sent / too many messages, without phone and e-mail |
 
    ```astro
    ---

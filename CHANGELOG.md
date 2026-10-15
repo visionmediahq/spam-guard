@@ -2,6 +2,14 @@
 
 Each version says whether a site needs to change anything after upgrading.
 
+## 1.2.0
+
+Site action needed: no. Sites that pass a phone number or an e-mail address render the same as 1.1.0.
+
+- `SpamNotice` and `FormStatus` work without a phone number and without an e-mail address, for a
+  site that publishes neither: the texts ask the visitor to turn on JavaScript and try again
+  (new parts `turnOn`, `retry`, `waitRetry`). 1.1.0 stopped the page with an error instead.
+
 ## 1.1.0
 
 Site action needed: no. Sites that pass neither new option render the same as 1.0.0, apart

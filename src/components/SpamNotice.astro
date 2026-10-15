@@ -4,11 +4,11 @@
 import { telHref } from '../lib/phone'
 import { spamText, type Lang, type SpamText } from '../lib/spam-text'
 interface Props {
-  /** Phone number as displayed, e.g. "063-12 34 56". Without one, the notice points to `email`. */
+  /** Phone number as displayed, e.g. "063-12 34 56". Without one, the notice points to `email`; without either, it asks for JavaScript only. */
   phone?: string
   /** Optional tel: link when the display form can't be turned into one, e.g. "tel:+4663123456". */
   phoneHref?: string
-  /** E-mail address for the notice; required when there is no phone. */
+  /** Optional e-mail address for the notice. */
   email?: string
   /** The page's language: 'sv' (default) or 'en'. */
   lang?: Lang
@@ -17,7 +17,6 @@ interface Props {
 }
 
 const { phone, phoneHref, email, lang = 'sv', text } = Astro.props
-if (!phone && !email) throw new Error('<SpamNotice />: give a phone number, an e-mail address, or both.')
 const t = spamText(lang, text)
 const href = phone ? telHref(phone, phoneHref) : undefined
 ---
@@ -35,10 +34,12 @@ const href = phone ? telHref(phone, phoneHref) : undefined
             )
           }.
         </>
-      ) : (
+      ) : email ? (
         <>
           {`${t.needsJs} ${t.mail}`}{' '}<a href={`mailto:${email}`}>{email}</a>.
         </>
+      ) : (
+        `${t.needsJs} ${t.turnOn}`
       )
     }
   </p>

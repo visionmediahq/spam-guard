@@ -4,6 +4,8 @@
 //   sent        {sent}
 //   not sent    {failed} {call} <phone>[ {or} <e-mail>].      without a phone: {failed} {mail} <e-mail>.
 //   wait        {wait} {waitCall} <phone>.                     without a phone: {wait} {waitMail} <e-mail>.
+// A site that shows neither a phone number nor an e-mail address (1.2):
+//   notice {needsJs} {turnOn}    not sent {failed} {retry}    wait {wait} {waitRetry}
 export interface SpamText {
   needsJs: string
   call: string
@@ -14,6 +16,9 @@ export interface SpamText {
   wait: string
   waitCall: string
   waitMail: string
+  turnOn: string
+  retry: string
+  waitRetry: string
 }
 
 export type Lang = 'sv' | 'en'
@@ -29,6 +34,9 @@ const TEXT: Record<Lang, SpamText> = {
     wait: 'Du har skickat flera meddelanden på kort tid.',
     waitCall: 'Vänta en stund, eller ring oss på',
     waitMail: 'Vänta en stund, eller mejla oss på',
+    turnOn: 'Slå på det för att skicka ett meddelande.',
+    retry: 'Formuläret kräver JavaScript: slå på det och försök igen.',
+    waitRetry: 'Vänta en stund och försök igen.',
   },
   en: {
     needsJs: 'This form needs JavaScript.',
@@ -40,6 +48,9 @@ const TEXT: Record<Lang, SpamText> = {
     wait: 'You have sent several messages in a short time.',
     waitCall: 'Please wait a while, or call us on',
     waitMail: 'Please wait a while, or e-mail us at',
+    turnOn: 'Please turn it on to send us a message.',
+    retry: 'This form needs JavaScript: please turn it on and try again.',
+    waitRetry: 'Please wait a while and try again.',
   },
 }
 
