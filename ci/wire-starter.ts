@@ -74,7 +74,8 @@ export function rewriteImports(source: string, file: string): string {
 
 export function wireCss(source: string): string {
   if (source.includes(SOURCE_LINE)) return source
-  const plugin = source.match(/^@plugin "daisyui"[^\n]*(\{[\s\S]*?\n\})?[^\n]*\n?/m)
+  // After the daisyui plugin, including its { … } options block when it spans several lines.
+  const plugin = source.match(/^@plugin "daisyui"[^\n{]*(\{[\s\S]*?\n\})?[^\n]*\n?/m)
   const anchor = plugin ?? source.match(/^@import "tailwindcss"[^\n]*\n?/m)
   if (!anchor || anchor.index === undefined) fail('no @import "tailwindcss" in the stylesheet')
   const end = anchor.index + anchor[0].length
