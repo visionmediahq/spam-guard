@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { wireCss, wireDockerfile, wireNpmrc } from '../ci/wire-starter.ts'
+import { rewriteImports, wireCss, wireDockerfile, wireNpmrc } from '../ci/wire-starter.ts'
 
 const SOURCE = '@source "../../node_modules/@visionmediahq/spam-guard/src";'
 
@@ -38,5 +38,30 @@ describe('wireNpmrc / wireDockerfile', () => {
     const df = 'FROM node:22\nCOPY package*.json ./\nRUN npm ci\n'
     expect(wireDockerfile(df)).toBe('FROM node:22\nCOPY package*.json .npmrc ./\nRUN npm ci\n')
     expect(wireDockerfile(wireDockerfile(df))).toBe(wireDockerfile(df))
+  })
+})
+
+describe('rewriteImports', () => {
+  it('rewrites relative and @/ or ~/ alias imports of the copies', () => {
+    const src = [
+      "import { checkSubmission } from '../../lib/spam-guard'",
+      "import { env } from '@/lib/runtime-env'",
+      "import { withFormRedirect } from '~/lib/form-redirect.ts'",
+      "import FormStatus from '@/components/FormStatus.astro'",
+      "import SpamNotice from './SpamNotice.astro'",
+      "import Other from '@/components/Other.astro'",
+    ].join('\n')
+    expect(rewriteImports(src, 'x.ts').split('\n')).toEqual([
+      "import { checkSubmission } from '@visionmediahq/spam-guard'",
+      "import { env } from '@visionmediahq/spam-guard/env'",
+      "import { withFormRedirect } from '@visionmediahq/spam-guard/form-redirect'",
+      "import FormStatus from '@visionmediahq/spam-guard/components/FormStatus.astro'",
+      "import SpamNotice from '@visionmediahq/spam-guard/components/SpamNotice.astro'",
+      "import Other from '@/components/Other.astro'",
+    ])
+  })
+
+  it('refuses an internal module, also through an alias', () => {
+    expect(() => rewriteImports("import { x } from '@/lib/spam-altcha'", 'x.ts')).toThrow(/internal module spam-altcha/)
   })
 })

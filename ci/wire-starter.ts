@@ -62,13 +62,14 @@ function filesUnder(dir: string): string[] {
 
 /** Rewrites relative imports of the copied modules and components to the package. */
 export function rewriteImports(source: string, file: string): string {
-  const lib = /(['"])((?:\.\.?\/)+(?:lib\/)?)(spam-guard|spam-client|recaptcha-client|form-redirect|runtime-env|phone|spam-fields|spam-altcha|spam-recaptcha|spam-ratelimit|spam-content)(?:\.ts)?\1/g
+  // Relative imports, or a src alias (`@/lib/…`, `~/lib/…`; tsconfig paths "@/*": ["src/*"]).
+  const lib = /(['"])((?:\.\.?\/)+(?:lib\/)?|[@~]\/lib\/)(spam-guard|spam-client|recaptcha-client|form-redirect|runtime-env|phone|spam-fields|spam-altcha|spam-recaptcha|spam-ratelimit|spam-content)(?:\.ts)?\1/g
   const out = source.replace(lib, (_match, quote: string, _prefix: string, name: string) => {
     const entry = LIB_ENTRY[name]
     if (!entry) fail(`${file} imports the internal module ${name}; use the package's public entry points`)
     return `${quote}${entry}${quote}`
   })
-  const components = new RegExp(`(['"])(?:\\.\\.?/)+(?:components/)?(${COMPONENTS.join('|')})\\.astro\\1`, 'g')
+  const components = new RegExp(`(['"])(?:(?:\\.\\.?/)+(?:components/)?|[@~]/components/)(${COMPONENTS.join('|')})\\.astro\\1`, 'g')
   return out.replace(components, (_match, quote: string, name: string) => `${quote}${PKG}/components/${name}.astro${quote}`)
 }
 
