@@ -24,4 +24,12 @@ describe('spamText', () => {
     expect(spamText('sv', { sent: undefined, call: '' }).sent).toBe('Tack! Vi hör av oss så snart vi kan.')
     expect(spamText('sv', { sent: undefined, call: '' }).call).toBe('Ring oss på')
   })
+
+  it('has the no-contact parts (1.2), overridable like the others', () => {
+    const sv = spamText()
+    expect(`${sv.needsJs} ${sv.turnOn}`).toBe('Formuläret kräver JavaScript. Slå på det för att skicka ett meddelande.')
+    expect(`${sv.failed} ${sv.retry}`).toBe('Meddelandet skickades inte. Formuläret kräver JavaScript: slå på det och försök igen.')
+    expect(`${sv.wait} ${sv.waitRetry}`).toBe('Du har skickat flera meddelanden på kort tid. Vänta en stund och försök igen.')
+    expect(spamText('en', { retry: 'Please try again later.' }).retry).toBe('Please try again later.')
+  })
 })

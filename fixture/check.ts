@@ -196,6 +196,12 @@ try {
   assert(mail.includes('Meddelandet skickades inte. Mejla oss i stället på <a class="link font-semibold" href="mailto:info@fixture.example"'), 'mejl page: error without a phone')
   assert(mail.includes('Vänta en stund, eller mejla oss på <a class="link font-semibold" href="mailto:info@fixture.example"'), 'mejl page: wait without a phone')
   assert(!mail.includes('tel:'), 'mejl page links a phone number')
+  // 1.2: neither a phone number nor an e-mail address.
+  const none = readFileSync(join(dir, 'dist/client/ingen/index.html'), 'utf8').replace(/\s+/g, ' ')
+  assert(none.includes('This form needs JavaScript. Please turn it on to send us a message.'), 'ingen page: notice without contact details')
+  assert(none.includes('Your message was not sent. This form needs JavaScript: please turn it on and try again.'), 'ingen page: error without contact details')
+  assert(none.includes('You have sent several messages in a short time. Please wait a while and try again.'), 'ingen page: wait without contact details')
+  assert(!none.includes('tel:') && !none.includes('mailto:'), 'ingen page links a phone number or address')
 
   // The re-exported routes answer at runtime, with the settings from the runtime environment only.
   // Resend is stubbed (resend-stub.ts): nothing leaves the machine.

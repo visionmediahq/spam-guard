@@ -10,11 +10,11 @@ import { FORM_NAME, FORM_RETURN_FIELD, FORM_STATUS_FIELD } from '../lib/form-red
 import { spamText, type Lang, type SpamText } from '../lib/spam-text'
 
 interface Props {
-  /** Phone number as displayed, e.g. "063-12 34 56". Without one, the replies point to `email`. */
+  /** Phone number as displayed, e.g. "063-12 34 56". Without one, the replies point to `email`; without either, they ask to try again. */
   phone?: string
   /** Optional tel: link when the display form can't be turned into one, e.g. "tel:+4663123456". */
   phoneHref?: string
-  /** E-mail address for the error messages; required when there is no phone. */
+  /** Optional e-mail address for the error messages. */
   email?: string
   /**
    * Only on a page with more than one form: a short name per form (lowercase letters,
@@ -29,7 +29,6 @@ interface Props {
 }
 
 const { phone, phoneHref, email, form, lang = 'sv', text } = Astro.props
-if (!phone && !email) throw new Error('<FormStatus />: give a phone number, an e-mail address, or both.')
 const t = spamText(lang, text)
 // The server only accepts names like this; a mismatch would silently show nothing, so fail the build.
 if (form !== undefined && !FORM_NAME.test(form)) {
@@ -50,10 +49,12 @@ const block = `${FORM_STATUS_CLASS} alert hidden target:grid scroll-mt-40`
     <p id={id('fel')} class={`${block} alert-error`} role="alert">
       {`${t.failed} ${t.call}`}{' '}<a class="link font-semibold" href={href} onclick="window.umami?.track('phone_click')">{phone}</a>{email && <>{' '}{t.or}{' '}<a class="link font-semibold" href={mailto} onclick="window.umami?.track('email_click')">{email}</a></>}.
     </p>
-  ) : (
+  ) : email ? (
     <p id={id('fel')} class={`${block} alert-error`} role="alert">
       {`${t.failed} ${t.mail}`}{' '}<a class="link font-semibold" href={mailto} onclick="window.umami?.track('email_click')">{email}</a>.
     </p>
+  ) : (
+    <p id={id('fel')} class={`${block} alert-error`} role="alert">{`${t.failed} ${t.retry}`}</p>
   )
 }
 {
@@ -61,9 +62,11 @@ const block = `${FORM_STATUS_CLASS} alert hidden target:grid scroll-mt-40`
     <p id={id('vanta')} class={`${block} alert-warning`} role="alert">
       {`${t.wait} ${t.waitCall}`}{' '}<a class="link font-semibold" href={href} onclick="window.umami?.track('phone_click')">{phone}</a>.
     </p>
-  ) : (
+  ) : email ? (
     <p id={id('vanta')} class={`${block} alert-warning`} role="alert">
       {`${t.wait} ${t.waitMail}`}{' '}<a class="link font-semibold" href={mailto} onclick="window.umami?.track('email_click')">{email}</a>.
     </p>
+  ) : (
+    <p id={id('vanta')} class={`${block} alert-warning`} role="alert">{`${t.wait} ${t.waitRetry}`}</p>
   )
 }
