@@ -26,13 +26,8 @@ const href = phone ? telHref(phone, phoneHref) : undefined
     {
       phone ? (
         <>
-          {`${t.needsJs} ${t.call}`}{' '}<a href={href}>{phone}</a>{
-            email && (
-              <>
-                {' '}{t.or}{' '}<a href={`mailto:${email}`}>{email}</a>
-              </>
-            )
-          }.
+          {/* One line: with compressHTML a line break before </> renders as a space before the full stop. */}
+          {`${t.needsJs} ${t.call}`}{' '}<a href={href}>{phone}</a>{email && <>{' '}{t.or}{' '}<a href={`mailto:${email}`}>{email}</a></>}.
         </>
       ) : email ? (
         <>

@@ -1,6 +1,6 @@
 {
   "name": "@visionmediahq/spam-guard",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Spam protection for Vision Media's Astro site forms: honeypot, reCAPTCHA v3 or self-hosted ALTCHA, rate limit, content flags, and no-JS form replies.",
   "type": "module",
   "private": true,

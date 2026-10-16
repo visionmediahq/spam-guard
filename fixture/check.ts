@@ -189,6 +189,9 @@ try {
   assert(!en.includes('Formuläret kräver'), 'en page has the Swedish notice')
   // Astro 7 drops a line break between text and a link: the space must be explicit.
   assert(sv.includes('eller ring oss på <a') && en.includes('or call us on <a'), 'wait message: no space before the phone link')
+  // …and none before the full stop after the last link of the notice.
+  const notice = (html: string) => html.match(/<p class="spam-notice">([\s\S]*?)<\/p>/)?.[1] ?? ''
+  assert(/<\/a>\.\s*$/.test(notice(sv)) && /<\/a>\.\s*$/.test(notice(en)), `notice: space before the full stop (${JSON.stringify(notice(sv).slice(-40))})`)
   // v1.1: no phone number, and the site's own wording for some parts.
   const mail = readFileSync(join(dir, 'dist/client/mejl/index.html'), 'utf8').replace(/\s+/g, ' ')
   assert(mail.includes('Formuläret kräver JavaScript. Mejla oss i stället på <a href="mailto:info@fixture.example">'), 'mejl page: notice without a phone')

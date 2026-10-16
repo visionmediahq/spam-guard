@@ -2,6 +2,14 @@
 
 Each version says whether a site needs to change anything after upgrading.
 
+## 1.2.1
+
+Site action needed: no.
+
+- `SpamNotice`: no space before the full stop after the e-mail link ("… eller mejla info@… ."),
+  on Astro 7 sites that set `compressHTML: true` (and in Astro 6's default). The fixture now builds
+  with `compressHTML: true` and checks the notice's ending.
+
 ## 1.2.0
 
 Site action needed: no. Sites that pass a phone number or an e-mail address render the same as 1.1.0.
