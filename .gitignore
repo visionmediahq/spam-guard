@@ -4,3 +4,6 @@ dist/
 fixture/.work/
 *.tgz
 .DS_Store
+.env
+.env.*
+!.env.example
