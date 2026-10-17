@@ -197,6 +197,19 @@ All read at runtime (`process.env`); no build variables.
 Every form must use `/client` (not the reCAPTCHA compat helpers). Set `SPAM_PROVIDER=altcha` and
 `ALTCHA_HMAC_SECRET` before deploying, or every post answers 503.
 
+### New, cloned or recreated apps
+
+The two variables belong to the Coolify app, not to its domain:
+
+- **Changing an app's domain** needs nothing for ALTCHA; the secret isn't tied to a host. Update
+  `SITE_URL` if the app has it.
+- **Cloning or recreating an app** makes a new app. Before its first deploy, give it
+  `SPAM_PROVIDER=altcha` and its own new `ALTCHA_HMAC_SECRET` (`openssl rand -hex 32`), or every
+  post answers 503. If the clone copied the variables, replace the secret: never reuse another
+  app's secret.
+
+Both are runtime variables: after changing them on a running app, restart it (no rebuild needed).
+
 ## Upgrading
 
 Sites depend on `semver:^1.0.0`, so a site picks up a new 1.x tag at its next `npm install`
