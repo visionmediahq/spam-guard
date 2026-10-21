@@ -2,6 +2,19 @@
 
 Each version says whether a site needs to change anything after upgrading.
 
+## 1.3.0
+
+Site action needed: no. Routes that prefix the subject when `spam.flag` is set flag the new case
+on their own.
+
+- `HoneypotField`: the input carries `data-1p-ignore`, `data-lpignore="true"`, `data-bwignore` and
+  `data-form-type="other"`, so password managers (which ignore `autocomplete="off"`) leave it empty.
+- `checkSubmission`: a filled honeypot that comes with a spam token is no longer dropped on sight.
+  The token is verified as usual; if it passes, the post is sent with `flag: 'honeypot'` and logged
+  as `honeypot-overridden`. If it fails, the fake success and the `honeypot token=yes` line stay.
+  A filled honeypot without a token is dropped as before. Before, an autofilled honeypot lost a
+  real visitor's message while they saw a confirmation (astro-starter#63).
+
 ## 1.2.1
 
 Site action needed: no.

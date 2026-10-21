@@ -87,11 +87,15 @@ async function postTest(base: string, stubLog: string): Promise<void> {
   const honeypot = await post('10.2.0.1', { hp_x7q2: 'x' })
   assert(honeypot.status === 200 && (await honeypot.json()).success === true, `honeypot: ${honeypot.status}, want a fake 200`)
   assert(sends() === 0, 'a rejected or honeypot post was sent')
+  const autofilled = await post('10.5.0.1', { hp_x7q2: 'anna@example.se', altcha: await solved(base, '10.9.0.2') })
+  assert(autofilled.status === 200, `autofilled honeypot with a solution: ${autofilled.status}, want 200`)
+  const lines = existsSync(stubLog) ? readFileSync(stubLog, 'utf8').split('\n').filter(Boolean) : []
+  assert(lines.length === 1 && lines[0]?.includes('[misstänkt spam] '), `autofilled honeypot: sends ${JSON.stringify(lines)}, want one flagged send`)
 
   const codes: number[] = []
   for (let i = 0; i < 6; i++) codes.push((await post('10.3.0.1', { altcha: await solved(base, '10.9.0.1') })).status)
   assert(codes.join(' ') === '200 200 200 200 200 429', `solved posts from one client: ${codes.join(' ')}, want 5 × 200 then 429`)
-  assert(sends() === 5, `${sends()} sends, want 5`)
+  assert(sends() === 6, `${sends()} sends, want 6 (1 autofilled + 5 solved)`)
 
   // fetch() always sends its own Sec-Fetch-Mode, so the browser's native form post goes through node:http.
   const noJs = await new Promise<{ status: number; location: string | undefined }>((resolve, reject) => {
@@ -107,7 +111,7 @@ async function postTest(base: string, stubLog: string): Promise<void> {
     req.end(body)
   })
   assert(noJs.status === 303 && noJs.location === '/kontakt/#fel', `no-JS post: ${noJs.status} ${noJs.location}, want 303 /kontakt/#fel`)
-  console.log('post test: nosol=400 honeypot=200(fake) solved=200×5 6th=429 no-js=303 #fel sends=5')
+  console.log('post test: nosol=400 honeypot=200(fake) autofilled=200(flagged) solved=200×5 6th=429 no-js=303 #fel sends=6')
 }
 
 /** SIGTERM a detached process group, SIGKILL whatever is left after 5 s. */
@@ -187,6 +191,7 @@ try {
   assert(sv.includes('Formuläret kräver JavaScript') && sv.includes('name="hp_x7q2"') && sv.includes('id="fel"'), 'sv page lacks the components')
   assert(en.includes('This form needs JavaScript. Call us on') && en.includes('Your message was not sent.'), 'en page lacks the English texts')
   assert(!en.includes('Formuläret kräver'), 'en page has the Swedish notice')
+  assert(/name="hp_x7q2"[^>]*data-1p-ignore[^>]*data-lpignore="true"[^>]*data-bwignore[^>]*data-form-type="other"/.test(sv), 'honeypot lacks the password-manager opt-outs')
   // Astro 7 drops a line break between text and a link: the space must be explicit.
   assert(sv.includes('eller ring oss på <a') && en.includes('or call us on <a'), 'wait message: no space before the phone link')
   // …and none before the full stop after the last link of the notice.

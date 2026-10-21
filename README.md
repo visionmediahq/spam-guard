@@ -7,6 +7,9 @@ Spam protection for the forms on Vision Media's Astro sites.
 - Fails closed: missing configuration, a provider error or an unreachable Google rejects the post
   (503 / 400) instead of sending unverified mail. Only `astro dev` lets posts through on the
   honeypot alone.
+- A filled honeypot with no token gets a fake success and is dropped. With a token it is almost
+  always a password manager's autofill: the provider decides, and a verified post is sent with
+  `flag: 'honeypot'` (so `[misstänkt spam] ` in the subject) instead of being lost.
 - 5 verified posts per client per 10 minutes. Content rules (many links, very long fields, mostly
   non-Latin text) never drop a message; they only flag it.
 - A browser post without JavaScript gets a 303 back to the form with `#skickat`, `#fel` or `#vanta`,
@@ -172,7 +175,8 @@ The package owns `altcha` and `altcha-lib`: remove them from the site's own depe
    export const POST = withFormRedirect(handle)
    ```
 
-   `guardSubmission(fields, action, request)` is the short form when the flag is not needed.
+   `guardSubmission(fields, action, request)` is the short form when the flag is not needed. It
+   sends an autofilled-honeypot post without the subject prefix, since it never sees the flag.
    Read the route's own settings (`RESEND_API_KEY`, `CONTACT_TO`, …) with `env()` too: it reads
    `process.env` at runtime in production and `.env` in `astro dev`, and never puts build-time
    values into the server bundle.

@@ -4,8 +4,10 @@
 // with the parsed request body before validating or sending anything.
 //
 // Layers, in order:
-// 1. Honeypot — a filled-in hidden field gets a fake success and is dropped,
-//    so bots don't learn they were caught.
+// 1. Honeypot — a filled-in hidden field with no token gets a fake success and is
+//    dropped, so bots don't learn they were caught. With a token it is almost always
+//    a password manager's autofill: the provider decides, and a verified post is
+//    sent with the flag 'honeypot'.
 // 2. Configuration — fails closed: a missing provider setting answers 503
 //    instead of sending unverified mail. Only `astro dev` lets posts through.
 // 3. Rate limit — 5 verified posts per 10 minutes per client. Only looked at
@@ -30,7 +32,9 @@ export { recaptchaSiteKey } from './spam-recaptcha'
 
 export type Provider = 'recaptcha' | 'altcha'
 export type Reason = 'ok' | 'honeypot' | 'misconfigured' | 'rate-limited' | 'failed'
-export type Check = { reason: Reason; flag?: Flag; retryAfterS?: number }
+/** A content rule, or 'honeypot' for a verified post whose honeypot was filled (autofill). */
+export type CheckFlag = Flag | 'honeypot'
+export type Check = { reason: Reason; flag?: CheckFlag; retryAfterS?: number }
 export type CheckOptions = {
   /** reCAPTCHA action — must match the one the form used. Default 'contact'. */
   action?: string
@@ -189,10 +193,12 @@ export async function checkSubmission(
 ): Promise<Check> {
   const f = fields ?? {}
 
-  // 1. Honeypot. token=yes/no tells a bot hit from an autofilled human.
-  if (hasText(f[HONEYPOT_FIELD])) {
-    const token = hasText(f[RECAPTCHA_TOKEN_FIELD]) || hasText(f[ALTCHA_FIELD])
-    log('honeypot', { token: token ? 'yes' : 'no' })
+  // 1. Honeypot. Without a token it is a bot. With one it is usually a password
+  //    manager's autofill (1Password and LastPass ignore autocomplete="off"), so the
+  //    provider decides in step 4: verified → sent and flagged, else the fake success.
+  const honeypot = hasText(f[HONEYPOT_FIELD])
+  if (honeypot && !hasText(f[RECAPTCHA_TOKEN_FIELD]) && !hasText(f[ALTCHA_FIELD])) {
+    log('honeypot', { token: 'no' })
     return { reason: 'honeypot' }
   }
 
@@ -201,6 +207,10 @@ export async function checkSubmission(
   const missing = (await missingConfig()) ?? (p === 'altcha' && !request ? 'request not passed' : null)
   if (missing || !p) {
     if (import.meta.env.DEV) {
+      if (honeypot) {
+        log('honeypot', { token: 'yes' })
+        return { reason: 'honeypot' }
+      }
       console.warn(`[spam-guard] ${missing} — only the honeypot is active (dev only)`)
       return { reason: 'ok' }
     }
@@ -228,6 +238,10 @@ export async function checkSubmission(
     return { reason: 'misconfigured' }
   }
   if (verdict.status === 'rejected') {
+    if (honeypot) {
+      log('honeypot', { token: 'yes' })
+      return { reason: 'honeypot' }
+    }
     log('rejected', { reason: 'failed', provider: p, detail: verdict.detail })
     return { reason: 'failed' }
   }
@@ -242,6 +256,10 @@ export async function checkSubmission(
       return { reason: 'rate-limited', retryAfterS: wait }
     }
     submitLimiter.record(key)
+  }
+  if (honeypot) {
+    log('honeypot-overridden', { provider: p })
+    return { reason: 'ok', flag: 'honeypot' }
   }
   const flag = request ? contentFlag(f, options.messageFields ?? ['message']) : undefined
 
