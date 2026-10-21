@@ -97,10 +97,45 @@ describe('honeypot', () => {
     expect(logLines()).toContain('[spam-guard] honeypot token=no')
   })
 
-  test('token=yes when an altcha payload came along', async () => {
+  test('a filled honeypot with a token that fails verification still gets the fake success', async () => {
     const { g } = await load(ALTCHA_ENV)
-    await g.checkSubmission({ hp_x7q2: 'x', altcha: 'abc' }, req('1.2.3.4'))
+    expect((await g.checkSubmission({ hp_x7q2: 'x', altcha: 'abc' }, req('1.2.3.4'))).reason).toBe('honeypot')
     expect(logLines()).toContain('[spam-guard] honeypot token=yes')
+  })
+
+  test('a filled honeypot with a verified altcha payload is an autofilled human: sent, flagged', async () => {
+    const { g, a } = await load(ALTCHA_ENV)
+    const c = await g.checkSubmission({ hp_x7q2: 'anna@example.se', altcha: await payload(a) }, req('1.2.3.4'))
+    expect(c).toEqual({ reason: 'ok', flag: 'honeypot' })
+    expect(logLines()).toContain('[spam-guard] honeypot-overridden provider=altcha')
+  })
+
+  test('a filled honeypot with a verified reCAPTCHA token is sent, flagged', async () => {
+    const { g } = await load(RECAPTCHA_ENV)
+    google(GOOGLE_OK)
+    const c = await g.checkSubmission({ hp_x7q2: 'x', recaptcha_token: 'tok' }, req('1.2.3.4'))
+    expect(c).toEqual({ reason: 'ok', flag: 'honeypot' })
+    expect(logLines()).toContain('[spam-guard] honeypot-overridden provider=recaptcha')
+  })
+
+  test('an overridden honeypot post counts toward the rate limit', async () => {
+    const { g, a } = await load(ALTCHA_ENV)
+    for (let i = 0; i < 5; i++) {
+      expect((await g.checkSubmission({ hp_x7q2: 'x', altcha: await payload(a) }, req('1.2.3.4'))).reason).toBe('ok')
+    }
+    expect((await g.checkSubmission({ hp_x7q2: 'x', altcha: await payload(a) }, req('1.2.3.4'))).reason).toBe('rate-limited')
+  })
+
+  test('a filled honeypot without a token never reaches the provider', async () => {
+    const { g } = await load(RECAPTCHA_ENV)
+    const fetch = vi.spyOn(globalThis, 'fetch')
+    expect((await g.checkSubmission({ hp_x7q2: 'x' }, req('1.2.3.4'))).reason).toBe('honeypot')
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  test('dev without keys still drops a filled honeypot', async () => {
+    const { g } = await load({ SPAM_PROVIDER: 'altcha' }, true)
+    expect((await g.checkSubmission({ hp_x7q2: 'x', altcha: 'abc' }, req('1.2.3.4'))).reason).toBe('honeypot')
   })
 
   test('null fields do not throw', async () => {

@@ -2,10 +2,12 @@
 // Honeypot field for spam protection. Place inside every <form>.
 // Moved off-screen rather than display:none, since some bots skip hidden inputs.
 // Hidden from assistive tech and keyboard focus so real visitors never fill it in.
+// Password managers ignore autocomplete="off", so the data-* attributes opt the input
+// out of 1Password, LastPass, Bitwarden and Dashlane autofill.
 import { HONEYPOT_FIELD } from '../lib/spam-fields'
 ---
 
 <div class="absolute -left-[9999px] h-px w-px overflow-hidden" aria-hidden="true">
   <!-- The input sits inside its label, so no id is needed and two forms on a page never clash. -->
-  <label>Lämna detta fält tomt <input name={HONEYPOT_FIELD} type="text" tabindex="-1" autocomplete="off" /></label>
+  <label>Lämna detta fält tomt <input name={HONEYPOT_FIELD} type="text" tabindex="-1" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore data-form-type="other" /></label>
 </div>
