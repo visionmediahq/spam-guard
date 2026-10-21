@@ -55,27 +55,31 @@ jobs:
           repository: visionmediahq/astro-starter
           token: ${{ secrets.STARTER_READ_TOKEN }}
           path: starter
+      # A site is never inside another project. Nested here, the starter's Vite 8 also reads this
+      # repo's tsconfig.json, whose `astro/tsconfigs/strict` has no node_modules to resolve from.
+      - name: Move the starter out of this checkout
+        run: mv starter "$RUNNER_TEMP/starter"
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
       - name: Wire the starter to this commit and write the lockfile
         run: |
-          node --experimental-strip-types ci/wire-starter.ts ./starter "github:visionmediahq/spam-guard#${{ github.sha }}"
-          cd starter && npm install --package-lock-only
+          node --experimental-strip-types ci/wire-starter.ts "$RUNNER_TEMP/starter" "github:visionmediahq/spam-guard#${{ github.sha }}"
+          cd "$RUNNER_TEMP/starter" && npm install --package-lock-only
       - name: npm ci, build, test, npm start
-        working-directory: starter
+        working-directory: ${{ runner.temp }}/starter
         run: |
           npm ci
           npm run build
           npm test -- --passWithNoTests
           HOST=127.0.0.1 PORT=5600 SITE_URL=https://example.invalid SPAM_PROVIDER=altcha ALTCHA_HMAC_SECRET="$SECRET" npm start &
-          node --experimental-strip-types ../ci/smoke.ts http://127.0.0.1:5600
+          node --experimental-strip-types "$GITHUB_WORKSPACE/ci/smoke.ts" http://127.0.0.1:5600
           kill %1
           # No node_modules or dist in the image's build context: the starter has no .dockerignore.
           rm -rf node_modules dist .astro
       - name: Build the starter's unmodified Dockerfile (npm ci without git)
-        working-directory: starter
+        working-directory: ${{ runner.temp }}/starter
         run: docker build --build-arg SITE_URL=https://example.invalid -t starter-test .
       - name: Run it and check the routes and headers
         run: |
