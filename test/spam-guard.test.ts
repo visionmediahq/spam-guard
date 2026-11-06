@@ -147,6 +147,8 @@ describe('honeypot', () => {
       { name: 'Anna M. Svensson', hp_x7q2: 'Anna Svensson' },
       { phone: '070-123 45 67 / 08-123 45 67', hp_x7q2: '+46 70 123 45 67' }, // two numbers in one field
       { phone: '070 123 45 67 08 123 45 67', hp_x7q2: '+46 8 123 45 67' },
+      { fornamn: 'Bo', efternamn: 'Ek', hp_x7q2: 'Bo Ek' }, // split name fields, two-letter names
+      { name: 'Anna-Karin Maria Louise af Ugglas', hp_x7q2: 'Anna-Karin' }, // a 5-word name
     ]
     for (const [i, fields] of cases.entries()) {
       const c = await g.checkSubmission({ ...fields, altcha: await payload(a) }, req(`1.2.3.${i + 1}`))
@@ -172,7 +174,12 @@ describe('honeypot', () => {
 
   test('JSON numbers and arrays count as fields to match', async () => {
     const { g, a } = await load(ALTCHA_ENV)
-    for (const fields of [{ phone: 701234567, hp_x7q2: '070 123 45 67' }, { emails: ['x@y.se', 'anna@example.se'], hp_x7q2: 'anna@example.se' }]) {
+    const cases: Record<string, unknown>[] = [
+      { phone: 701234567, hp_x7q2: '070 123 45 67' },
+      { emails: ['x@y.se', 'anna@example.se'], hp_x7q2: 'anna@example.se' },
+      { contact: { name: 'Anna Berg', email: 'anna@example.se' }, hp_x7q2: 'anna@example.se' }, // nested
+    ]
+    for (const fields of cases) {
       const c = await g.checkSubmission({ ...fields, altcha: await payload(a) }, req('1.2.3.4'))
       expect(c, JSON.stringify(fields)).toEqual({ reason: 'ok', flag: 'honeypot' })
     }
@@ -213,6 +220,12 @@ describe('honeypot', () => {
       expect((await g.checkSubmission({ hp_x7q2: 'KzPqWvBnTr', altcha: await payload(a) }, req('1.2.3.4'))).reason).toBe('honeypot')
     }
     expect((await g.checkSubmission({ name: 'Anna', altcha: await payload(a) }, req('1.2.3.4'))).reason).toBe('rate-limited')
+  })
+
+  test('split two-letter names count only as a whole: one short word is not enough', async () => {
+    const { g, a } = await load(ALTCHA_ENV)
+    const c = await g.checkSubmission({ fornamn: 'Bo', efternamn: 'Ek', hp_x7q2: 'Bo Xq', altcha: await payload(a) }, req('1.2.3.4'))
+    expect(c).toEqual({ reason: 'honeypot' })
   })
 
   test('a honeypot needs 3 letters or digits: punctuation alone never counts', async () => {

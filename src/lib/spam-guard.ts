@@ -185,7 +185,7 @@ const MIN_AUTOFILL_CHARS = 3
 const MAX_AUTOFILL_CHARS = 254
 // Free text (more words or characters than a name, e-mail or phone): a short honeypot would
 // match almost any, so only a honeypot of MIN_IN_LONG_TEXT_CHARS or more counts there.
-const SHORT_VALUE_WORDS = 4
+const SHORT_VALUE_WORDS = 6 // a long Swedish name: Anna-Karin Maria Louise af Ugglas
 const SHORT_VALUE_CHARS = 80
 const MIN_IN_LONG_TEXT_CHARS = 6
 const MIN_PHONE_DIGITS = 6
@@ -219,10 +219,13 @@ function samePhone(a: string, b: string): boolean {
   return short.length >= MIN_PHONE_SUFFIX_DIGITS && long.endsWith(short) // a foreign country code
 }
 
-/** A field's string values: strings and numbers, and those inside an array. */
-function stringsOf(value: unknown): string[] {
-  const list = Array.isArray(value) ? value : [value]
-  return list.filter((v) => typeof v === 'string' || typeof v === 'number').map(String)
+const MAX_DEPTH = 3
+
+/** A field's string values: strings and numbers, also inside arrays and nested JSON objects. */
+function stringsOf(value: unknown, depth = 0): string[] {
+  if (typeof value === 'string' || typeof value === 'number') return [String(value)]
+  if (depth >= MAX_DEPTH || value === null || typeof value !== 'object') return []
+  return Object.values(value).flatMap((v) => stringsOf(v, depth + 1))
 }
 
 /**
@@ -235,27 +238,32 @@ function looksAutofilled(fields: Record<string, unknown>): boolean {
   if (raw.length > MAX_AUTOFILL_CHARS) return false
   const hp = normalise(raw)
   if (hp.replace(/@/g, '').length < MIN_AUTOFILL_CHARS) return false
-  // Each word on its own too, so "Anna Svensson" matches "Anna S." and "A. Svensson".
-  const hpWords = raw.split(/\s+/).map(normalise).filter((w) => w.length >= MIN_AUTOFILL_CHARS)
-  const hpPhones = phoneNumbers(raw)
   const spamFields: ReadonlySet<string> = new Set(SPAM_FIELDS)
-  return Object.entries(fields).some(
-    ([key, value]) =>
-      !spamFields.has(key) &&
-      stringsOf(value).some((s) => {
-        if (hpPhones.length) {
-          if (phoneNumbers(s).some((p) => hpPhones.some((h) => samePhone(h, p)))) return true
-          // Two numbers in one field ("070-… / 08-…") run together into one: look inside its digits.
-          const digits = s.replace(/\D/g, '')
-          if (hpPhones.some((h) => h.length >= MIN_PHONE_SUFFIX_DIGITS && digits.includes(h))) return true
-        }
-        const v = normalise(s)
-        if (v.length < MIN_AUTOFILL_CHARS) return false
-        const short = v.length <= SHORT_VALUE_CHARS && s.trim().split(/\s+/).length <= SHORT_VALUE_WORDS
-        if (short) return v.includes(hp) || hp.includes(v) || hpWords.some((w) => v.includes(w))
-        return hp.length >= MIN_IN_LONG_TEXT_CHARS && v.includes(hp)
-      })
-  )
+  const values = Object.entries(fields)
+    .filter(([key]) => !spamFields.has(key))
+    .flatMap(([, value]) => stringsOf(value))
+
+  // A name split over several fields ("Bo" + "Ek" = "Bo Ek"): every honeypot word is a whole field.
+  const allWords = raw.split(/\s+/).map(normalise).filter(Boolean)
+  const whole = new Set(values.map(normalise))
+  if (allWords.length > 1 && allWords.every((w) => whole.has(w))) return true
+
+  // Each word on its own too, so "Anna Svensson" matches "Anna S." and "A. Svensson".
+  const hpWords = allWords.filter((w) => w.length >= MIN_AUTOFILL_CHARS)
+  const hpPhones = phoneNumbers(raw)
+  return values.some((s) => {
+    if (hpPhones.length) {
+      if (phoneNumbers(s).some((p) => hpPhones.some((h) => samePhone(h, p)))) return true
+      // Two numbers in one field ("070-… / 08-…") run together into one: look inside its digits.
+      const digits = s.replace(/\D/g, '')
+      if (hpPhones.some((h) => h.length >= MIN_PHONE_SUFFIX_DIGITS && digits.includes(h))) return true
+    }
+    const v = normalise(s)
+    if (v.length < MIN_AUTOFILL_CHARS) return false
+    const short = v.length <= SHORT_VALUE_CHARS && s.trim().split(/\s+/).length <= SHORT_VALUE_WORDS
+    if (short) return v.includes(hp) || hp.includes(v) || hpWords.some((w) => v.includes(w))
+    return hp.length >= MIN_IN_LONG_TEXT_CHARS && v.includes(hp)
+  })
 }
 
 /** The shape of a honeypot value for the log, never the value: an e-mail, phone, words or one token. */
