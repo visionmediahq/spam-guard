@@ -7,10 +7,13 @@ Each version says whether a site needs to change anything after upgrading.
 Site action needed: no. Upgrade to stop gibberish bot posts reaching clients as `[misstänkt spam]`.
 
 - `checkSubmission`: a verified post with a filled honeypot is sent with `flag: 'honeypot'` only if
-  the honeypot value matches another field (ignoring case, spaces and punctuation, at least 3
-  characters; part of a value counts, e.g. a first name). Otherwise it is a bot that solves the
-  challenge: fake success, dropped, logged as `honeypot token=yes match=no provider=…`. In 1.3.0
-  every verified honeypot hit was sent, which let random-string spam through (#21).
+  the honeypot value matches another field, as a password manager's autofill does. Matching
+  ignores case, Unicode composition (å/ä/ö) and everything but letters, digits, `@` and `.`, needs at
+  least 3 characters, and accepts part of a value (a first name). Phone numbers compare by their
+  last 9 digits, so `+46 70 123 45 67` matches `070-123 45 67`. Numbers and arrays in JSON bodies
+  count; the `messageFields` don't. Otherwise it is a bot that solves the challenge: fake success,
+  dropped, logged as `honeypot token=yes match=no provider=…`. In 1.3.0 every verified honeypot hit
+  was sent, which let random-string spam through (#21).
 
 ## 1.3.0
 

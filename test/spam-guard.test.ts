@@ -132,9 +132,12 @@ describe('honeypot', () => {
       { email: 'Anna@Example.se', hp_x7q2: ' anna@example.se ' },
       { phone: '070-123 45 67', hp_x7q2: '0701234567' },
       { name: 'Anna Berg', hp_x7q2: 'Anna' }, // first name only
+      { phone: '070-123 45 67', hp_x7q2: '+46 70 123 45 67' }, // stored with the country code
+      { phone: '070.123.45.67', hp_x7q2: '070-123 45 67' },
+      { name: '\u00c5sa Str\u00f6m', hp_x7q2: 'A\u030asa Stro\u0308m' }, // composed vs decomposed å ö
     ]
-    for (const fields of cases) {
-      const c = await g.checkSubmission({ ...fields, altcha: await payload(a) }, req('1.2.3.4'))
+    for (const [i, fields] of cases.entries()) {
+      const c = await g.checkSubmission({ ...fields, altcha: await payload(a) }, req(`1.2.3.${i + 1}`))
       expect(c, JSON.stringify(fields)).toEqual({ reason: 'ok', flag: 'honeypot' })
     }
   })
@@ -153,6 +156,30 @@ describe('honeypot', () => {
     expect(await g.checkSubmission(fields, req('1.2.3.4'))).toEqual({ reason: 'honeypot' })
     expect(logLines()).toContain('[spam-guard] honeypot token=yes match=no provider=altcha')
     expect(logLines().some((l) => l.includes('honeypot-overridden'))).toBe(false)
+  })
+
+  test('JSON numbers and arrays count as fields to match', async () => {
+    const { g, a } = await load(ALTCHA_ENV)
+    for (const fields of [{ phone: 701234567, hp_x7q2: '070 123 45 67' }, { emails: ['x@y.se', 'anna@example.se'], hp_x7q2: 'anna@example.se' }]) {
+      const c = await g.checkSubmission({ ...fields, altcha: await payload(a) }, req('1.2.3.4'))
+      expect(c, JSON.stringify(fields)).toEqual({ reason: 'ok', flag: 'honeypot' })
+    }
+  })
+
+  test('the free-text message is not a source for the autofill match', async () => {
+    const { g, a } = await load(ALTCHA_ENV)
+    const fields = { name: 'Anna Berg', message: 'Hej, det gäller en offert.', hp_x7q2: 'det', altcha: await payload(a) }
+    expect(await g.checkSubmission(fields, req('1.2.3.4'))).toEqual({ reason: 'honeypot' })
+    const custom = { name: 'Anna Berg', fritext: 'Hej, det gäller en offert.', hp_x7q2: 'offert', altcha: await payload(a) }
+    expect(await g.checkSubmission(custom, req('1.2.3.5'), { messageFields: ['fritext'] })).toEqual({ reason: 'honeypot' })
+  })
+
+  test('a dropped solving bot still counts toward the rate limit', async () => {
+    const { g, a } = await load(ALTCHA_ENV)
+    for (let i = 0; i < 5; i++) {
+      expect((await g.checkSubmission({ hp_x7q2: 'KzPqWvBnTr', altcha: await payload(a) }, req('1.2.3.4'))).reason).toBe('honeypot')
+    }
+    expect((await g.checkSubmission({ name: 'Anna', altcha: await payload(a) }, req('1.2.3.4'))).reason).toBe('rate-limited')
   })
 
   test('a one- or two-character honeypot value never counts as autofill', async () => {

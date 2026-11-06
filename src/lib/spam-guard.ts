@@ -180,25 +180,47 @@ function hasText(value: unknown): boolean {
 }
 
 const MIN_AUTOFILL_CHARS = 3
+const MIN_PHONE_DIGITS = 6
+const PHONE_TAIL = 9 // national number without the leading 0 or country code
 
-/** Lower case, letters, digits, '@' and '.' only: "070-123 45 67" → "0701234567". */
+/** NFKC, lower case, letters, digits, '@' and '.' only: "Åsa B." → "åsab." */
 function normalise(value: string): string {
-  return value.toLowerCase().replace(/[^\p{L}\p{N}@.]/gu, '')
+  return value.normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}@.]/gu, '')
+}
+
+/** The last digits of a phone-like value, so "+46 70-123 45 67" = "070.123.45.67"; else null. */
+function phoneTail(value: string): string | null {
+  if (!/^[\d\s+().\-/]+$/.test(value.trim())) return null
+  const digits = value.replace(/\D/g, '')
+  return digits.length >= MIN_PHONE_DIGITS ? digits.slice(-PHONE_TAIL) : null
+}
+
+/** A field's string values: strings and numbers, and those inside an array. */
+function stringsOf(value: unknown): string[] {
+  const list = Array.isArray(value) ? value : [value]
+  return list.filter((v) => typeof v === 'string' || typeof v === 'number').map(String)
 }
 
 /**
  * Whether the honeypot holds a copy of another field, as a password manager's
  * autofill does (the visitor's name, e-mail or phone, possibly only part of it).
- * Bots that solve the challenge write a value of their own.
+ * Bots that solve the challenge write a value of their own. The free-text
+ * message fields are not compared: a short honeypot would match almost any text.
  */
-function looksAutofilled(fields: Record<string, unknown>): boolean {
-  const hp = normalise(String(fields[HONEYPOT_FIELD]))
-  if (hp.length < MIN_AUTOFILL_CHARS) return false
-  return Object.entries(fields).some(([key, value]) => {
-    if ((SPAM_FIELDS as readonly string[]).includes(key) || typeof value !== 'string') return false
-    const v = normalise(value)
-    return v.length >= MIN_AUTOFILL_CHARS && (v.includes(hp) || hp.includes(v))
-  })
+function looksAutofilled(fields: Record<string, unknown>, messageFields: string[]): boolean {
+  const raw = String(fields[HONEYPOT_FIELD])
+  const hp = normalise(raw)
+  const hpPhone = phoneTail(raw)
+  const skip = new Set<string>([...SPAM_FIELDS, ...messageFields])
+  return Object.entries(fields).some(
+    ([key, value]) =>
+      !skip.has(key) &&
+      stringsOf(value).some((s) => {
+        if (hpPhone && hpPhone === phoneTail(s)) return true
+        const v = normalise(s)
+        return hp.length >= MIN_AUTOFILL_CHARS && v.length >= MIN_AUTOFILL_CHARS && (v.includes(hp) || hp.includes(v))
+      })
+  )
 }
 
 // ---- the check ----
@@ -216,6 +238,7 @@ export async function checkSubmission(
   options: CheckOptions = {}
 ): Promise<Check> {
   const f = fields ?? {}
+  const messageFields = options.messageFields ?? ['message']
 
   // 1. Honeypot. Without a token it is a bot. With one it is usually a password
   //    manager's autofill (1Password and LastPass ignore autocomplete="off"), so the
@@ -282,14 +305,14 @@ export async function checkSubmission(
     submitLimiter.record(key)
   }
   if (honeypot) {
-    if (!looksAutofilled(f)) {
+    if (!looksAutofilled(f, messageFields)) {
       log('honeypot', { token: 'yes', match: 'no', provider: p })
       return { reason: 'honeypot' }
     }
     log('honeypot-overridden', { provider: p })
     return { reason: 'ok', flag: 'honeypot' }
   }
-  const flag = request ? contentFlag(f, options.messageFields ?? ['message']) : undefined
+  const flag = request ? contentFlag(f, messageFields) : undefined
 
   if (p === 'altcha' || flag) log('accepted', { provider: p, age_s: verdict.ageS, flag })
   return flag ? { reason: 'ok', flag } : { reason: 'ok' }
