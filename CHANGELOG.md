@@ -7,13 +7,18 @@ Each version says whether a site needs to change anything after upgrading.
 Site action needed: no. Upgrade to stop gibberish bot posts reaching clients as `[misstänkt spam]`.
 
 - `checkSubmission`: a verified post with a filled honeypot is sent with `flag: 'honeypot'` only if
-  the honeypot value matches another field, as a password manager's autofill does. Matching
-  ignores case, Unicode composition (å/ä/ö) and everything but letters, digits, `@` and `.`, needs at
-  least 3 characters, and accepts part of a value (a first name). Phone numbers compare by their
-  last 9 digits, so `+46 70 123 45 67` matches `070-123 45 67`. Numbers and arrays in JSON bodies
-  count; the `messageFields` don't. Otherwise it is a bot that solves the challenge: fake success,
-  dropped, logged as `honeypot token=yes match=no provider=…`. In 1.3.0 every verified honeypot hit
-  was sent, which let random-string spam through (#21).
+  the honeypot value matches another field, as a password manager's autofill does. Otherwise it is
+  a bot that solves the challenge: fake success, dropped. In 1.3.0 every verified honeypot hit was
+  sent, which let random-string spam through (#21).
+  - Text ignores case, Unicode composition (å/ä/ö) and everything but letters, digits, `@` and `.`.
+    Part of a value counts (a first name), with at least 3 characters; in free text (more than 4
+    words or 80 characters) the honeypot needs at least 6.
+  - Phone numbers compare as national numbers, so `+46 8 12 34 56`, `0046 8 12 34 56`,
+    `+46 (0)8 12 34 56` and `08-12 34 56` match, also with text around the number.
+  - Every field counts, `messageFields` included, and numbers and arrays in JSON bodies.
+  - A drop is logged with the shape of the honeypot value, never the value:
+    `honeypot token=yes match=no kind=token|email|phone|words len=… provider=…`. A `kind` other
+    than `token` is worth a look: it may be a real visitor's autofill that didn't match.
 
 ## 1.3.0
 

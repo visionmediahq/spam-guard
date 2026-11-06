@@ -135,6 +135,13 @@ describe('honeypot', () => {
       { phone: '070-123 45 67', hp_x7q2: '+46 70 123 45 67' }, // stored with the country code
       { phone: '070.123.45.67', hp_x7q2: '070-123 45 67' },
       { name: '\u00c5sa Str\u00f6m', hp_x7q2: 'A\u030asa Stro\u0308m' }, // composed vs decomposed å ö
+      { phone: '031-12 34 56', hp_x7q2: '+46 31 12 34 56' }, // short landline
+      { phone: '08-12 34 56', hp_x7q2: '+46 8 12 34 56' },
+      { phone: '+46 40 12 34 56', hp_x7q2: '040-12 34 56' },
+      { phone: '08-123 45 67', hp_x7q2: '0046 8 123 45 67' },
+      { phone: '+46 (0)8 123 45 67', hp_x7q2: '08-123 45 67' },
+      { phone: '070-123 45 67 (mobil)', hp_x7q2: '+46701234567' }, // text around the number
+      { address: 'Storgatan 12, 831 30 Östersund', hp_x7q2: 'Storgatan 12' }, // part of a longer value
     ]
     for (const [i, fields] of cases.entries()) {
       const c = await g.checkSubmission({ ...fields, altcha: await payload(a) }, req(`1.2.3.${i + 1}`))
@@ -154,7 +161,7 @@ describe('honeypot', () => {
       altcha: await payload(a),
     }
     expect(await g.checkSubmission(fields, req('1.2.3.4'))).toEqual({ reason: 'honeypot' })
-    expect(logLines()).toContain('[spam-guard] honeypot token=yes match=no provider=altcha')
+    expect(logLines()).toContain('[spam-guard] honeypot token=yes match=no kind=token len=16 provider=altcha')
     expect(logLines().some((l) => l.includes('honeypot-overridden'))).toBe(false)
   })
 
@@ -166,12 +173,33 @@ describe('honeypot', () => {
     }
   })
 
-  test('the free-text message is not a source for the autofill match', async () => {
+  test('a name listed in messageFields still counts as a match', async () => {
     const { g, a } = await load(ALTCHA_ENV)
-    const fields = { name: 'Anna Berg', message: 'Hej, det gäller en offert.', hp_x7q2: 'det', altcha: await payload(a) }
+    const fields = { namn: 'Anna Berg', meddelande: 'Hej!', hp_x7q2: 'Anna Berg', altcha: await payload(a) }
+    const c = await g.checkSubmission(fields, req('1.2.3.4'), { messageFields: ['namn', 'meddelande'] })
+    expect(c).toEqual({ reason: 'ok', flag: 'honeypot' })
+  })
+
+  test('a short honeypot does not match by being part of a long message', async () => {
+    const { g, a } = await load(ALTCHA_ENV)
+    const message = 'Hej, det gäller en offert på tre maskiner till vårt lager i Östersund, gärna snart.'
+    const fields = { name: 'Anna Berg', message, hp_x7q2: 'det', altcha: await payload(a) }
     expect(await g.checkSubmission(fields, req('1.2.3.4'))).toEqual({ reason: 'honeypot' })
-    const custom = { name: 'Anna Berg', fritext: 'Hej, det gäller en offert.', hp_x7q2: 'offert', altcha: await payload(a) }
-    expect(await g.checkSubmission(custom, req('1.2.3.5'), { messageFields: ['fritext'] })).toEqual({ reason: 'honeypot' })
+  })
+
+  test('a dropped honeypot logs the shape of its value, never the value', async () => {
+    const { g, a } = await load(ALTCHA_ENV)
+    const shapes: [string, string][] = [
+      ['KzPqWvBnTrLmYxCd', 'kind=token len=16'],
+      ['someone@example.se', 'kind=email len=18'],
+      ['+46 8 99 99 99', 'kind=phone len=14'],
+      ['Nils Holm', 'kind=words len=9'],
+    ]
+    for (const [i, [hp, shape]] of shapes.entries()) {
+      await g.checkSubmission({ name: 'Anna Berg', hp_x7q2: hp, altcha: await payload(a) }, req(`1.2.4.${i + 1}`))
+      expect(logLines()).toContain(`[spam-guard] honeypot token=yes match=no ${shape} provider=altcha`)
+    }
+    expect(logLines().join('\n')).not.toMatch(/KzPq|someone|Nils/)
   })
 
   test('a dropped solving bot still counts toward the rate limit', async () => {

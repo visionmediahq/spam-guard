@@ -11,7 +11,8 @@ Spam protection for the forms on Vision Media's Astro sites.
   password manager's autofill: the provider decides. A verified post is sent with
   `flag: 'honeypot'` (so `[misstänkt spam] ` in the subject) only if the honeypot holds a copy of
   another field (the visitor's name, e-mail or phone), as autofill does. A value of its own means a
-  bot that solved the challenge: fake success, dropped, logged as `honeypot token=yes match=no`.
+  bot that solved the challenge: fake success, dropped, logged as
+  `honeypot token=yes match=no kind=… len=…` (the shape of the value, never the value).
   Autofill of something the form doesn't ask for (a company, a street address) is dropped too, as
   before 1.3.0; the `data-*` opt-outs on `HoneypotField` keep password managers out of the field.
 - 5 verified posts per client per 10 minutes. Content rules (many links, very long fields, mostly

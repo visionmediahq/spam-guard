@@ -180,19 +180,40 @@ function hasText(value: unknown): boolean {
 }
 
 const MIN_AUTOFILL_CHARS = 3
+// Free text (more words or characters than a name, e-mail or phone): a short honeypot would
+// match almost any, so only a honeypot of MIN_IN_LONG_TEXT_CHARS or more counts there.
+const SHORT_VALUE_WORDS = 4
+const SHORT_VALUE_CHARS = 80
+const MIN_IN_LONG_TEXT_CHARS = 6
 const MIN_PHONE_DIGITS = 6
-const PHONE_TAIL = 9 // national number without the leading 0 or country code
+const MIN_PHONE_SUFFIX_DIGITS = 7
+const PHONE_RUN = /\+?\d[\d\s().\-/]{4,}\d/g
 
 /** NFKC, lower case, letters, digits, '@' and '.' only: "Åsa B." → "åsab." */
 function normalise(value: string): string {
   return value.normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}@.]/gu, '')
 }
 
-/** The last digits of a phone-like value, so "+46 70-123 45 67" = "070.123.45.67"; else null. */
-function phoneTail(value: string): string | null {
-  if (!/^[\d\s+().\-/]+$/.test(value.trim())) return null
-  const digits = value.replace(/\D/g, '')
-  return digits.length >= MIN_PHONE_DIGITS ? digits.slice(-PHONE_TAIL) : null
+/**
+ * The phone numbers in a value as national significant numbers, so
+ * "+46 8 12 34 56", "0046 8 12 34 56", "+46 (0)8 12 34 56" and "08-12 34 56" are all "8123456".
+ */
+function phoneNumbers(value: string): string[] {
+  return (value.normalize('NFKC').match(PHONE_RUN) ?? [])
+    .map((run) => {
+      const plus = run.startsWith('+')
+      let digits = run.replace(/\(0\)/g, '').replace(/\D/g, '')
+      if (plus && digits.startsWith('46')) digits = digits.slice(2)
+      else if (digits.startsWith('0046')) digits = digits.slice(4)
+      return digits.replace(/^0/, '')
+    })
+    .filter((digits) => digits.length >= MIN_PHONE_DIGITS)
+}
+
+function samePhone(a: string, b: string): boolean {
+  if (a === b) return true
+  const [short, long] = a.length < b.length ? [a, b] : [b, a]
+  return short.length >= MIN_PHONE_SUFFIX_DIGITS && long.endsWith(short) // a foreign country code
 }
 
 /** A field's string values: strings and numbers, and those inside an array. */
@@ -204,23 +225,38 @@ function stringsOf(value: unknown): string[] {
 /**
  * Whether the honeypot holds a copy of another field, as a password manager's
  * autofill does (the visitor's name, e-mail or phone, possibly only part of it).
- * Bots that solve the challenge write a value of their own. The free-text
- * message fields are not compared: a short honeypot would match almost any text.
+ * Bots that solve the challenge write a value of their own.
  */
-function looksAutofilled(fields: Record<string, unknown>, messageFields: string[]): boolean {
+function looksAutofilled(fields: Record<string, unknown>): boolean {
   const raw = String(fields[HONEYPOT_FIELD])
   const hp = normalise(raw)
-  const hpPhone = phoneTail(raw)
-  const skip = new Set<string>([...SPAM_FIELDS, ...messageFields])
+  const hpPhones = phoneNumbers(raw)
+  const spamFields: ReadonlySet<string> = new Set(SPAM_FIELDS)
   return Object.entries(fields).some(
     ([key, value]) =>
-      !skip.has(key) &&
+      !spamFields.has(key) &&
       stringsOf(value).some((s) => {
-        if (hpPhone && hpPhone === phoneTail(s)) return true
+        if (hpPhones.length && phoneNumbers(s).some((p) => hpPhones.some((h) => samePhone(h, p)))) return true
         const v = normalise(s)
-        return hp.length >= MIN_AUTOFILL_CHARS && v.length >= MIN_AUTOFILL_CHARS && (v.includes(hp) || hp.includes(v))
+        if (hp.length < MIN_AUTOFILL_CHARS || v.length < MIN_AUTOFILL_CHARS) return false
+        const short = v.length <= SHORT_VALUE_CHARS && s.trim().split(/\s+/).length <= SHORT_VALUE_WORDS
+        if (short) return v.includes(hp) || hp.includes(v)
+        return hp.length >= MIN_IN_LONG_TEXT_CHARS && v.includes(hp)
       })
   )
+}
+
+/** The shape of a honeypot value for the log, never the value: an e-mail, phone, words or one token. */
+function honeypotShape(value: string): { kind: string; len: number } {
+  const v = value.trim()
+  const kind = v.includes('@')
+    ? 'email'
+    : /^\+?\d[\d\s().\-/]*$/.test(v) && phoneNumbers(v).length
+      ? 'phone'
+      : /\s/.test(v)
+        ? 'words'
+        : 'token'
+  return { kind, len: v.length }
 }
 
 // ---- the check ----
@@ -305,8 +341,8 @@ export async function checkSubmission(
     submitLimiter.record(key)
   }
   if (honeypot) {
-    if (!looksAutofilled(f, messageFields)) {
-      log('honeypot', { token: 'yes', match: 'no', provider: p })
+    if (!looksAutofilled(f)) {
+      log('honeypot', { token: 'yes', match: 'no', ...honeypotShape(String(f[HONEYPOT_FIELD])), provider: p })
       return { reason: 'honeypot' }
     }
     log('honeypot-overridden', { provider: p })
