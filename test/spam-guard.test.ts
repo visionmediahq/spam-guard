@@ -142,6 +142,11 @@ describe('honeypot', () => {
       { phone: '+46 (0)8 123 45 67', hp_x7q2: '08-123 45 67' },
       { phone: '070-123 45 67 (mobil)', hp_x7q2: '+46701234567' }, // text around the number
       { address: 'Storgatan 12, 831 30 Östersund', hp_x7q2: 'Storgatan 12' }, // part of a longer value
+      { name: 'Anna S.', hp_x7q2: 'Anna Svensson' }, // initials
+      { name: 'A. Svensson', hp_x7q2: 'A Svensson' },
+      { name: 'Anna M. Svensson', hp_x7q2: 'Anna Svensson' },
+      { phone: '070-123 45 67 / 08-123 45 67', hp_x7q2: '+46 70 123 45 67' }, // two numbers in one field
+      { phone: '070 123 45 67 08 123 45 67', hp_x7q2: '+46 8 123 45 67' },
     ]
     for (const [i, fields] of cases.entries()) {
       const c = await g.checkSubmission({ ...fields, altcha: await payload(a) }, req(`1.2.3.${i + 1}`))
@@ -208,6 +213,21 @@ describe('honeypot', () => {
       expect((await g.checkSubmission({ hp_x7q2: 'KzPqWvBnTr', altcha: await payload(a) }, req('1.2.3.4'))).reason).toBe('honeypot')
     }
     expect((await g.checkSubmission({ name: 'Anna', altcha: await payload(a) }, req('1.2.3.4'))).reason).toBe('rate-limited')
+  })
+
+  test('a honeypot needs 3 letters or digits: punctuation alone never counts', async () => {
+    const { g, a } = await load(ALTCHA_ENV)
+    const c = await g.checkSubmission({ name: 'Hm...', hp_x7q2: '...', altcha: await payload(a) }, req('1.2.3.4'))
+    expect(c).toEqual({ reason: 'honeypot' })
+  })
+
+  test('a honeypot longer than any autofill value is dropped without comparing (no quadratic work)', async () => {
+    const { g, a } = await load(ALTCHA_ENV)
+    const runs = Array.from({ length: 20000 }, (_, i) => String(1000000 + i)).join('x')
+    const started = performance.now()
+    const c = await g.checkSubmission({ message: runs, phone: runs, hp_x7q2: runs, altcha: await payload(a) }, req('1.2.3.4'))
+    expect(c).toEqual({ reason: 'honeypot' })
+    expect(performance.now() - started).toBeLessThan(500)
   })
 
   test('a one- or two-character honeypot value never counts as autofill', async () => {

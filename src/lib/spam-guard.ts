@@ -180,6 +180,9 @@ function hasText(value: unknown): boolean {
 }
 
 const MIN_AUTOFILL_CHARS = 3
+// No autofill value (a name, an e-mail address, a phone number, an address) is longer. Comparing
+// a longer honeypot would only cost time: the phone comparison grows with the square of the input.
+const MAX_AUTOFILL_CHARS = 254
 // Free text (more words or characters than a name, e-mail or phone): a short honeypot would
 // match almost any, so only a honeypot of MIN_IN_LONG_TEXT_CHARS or more counts there.
 const SHORT_VALUE_WORDS = 4
@@ -189,9 +192,9 @@ const MIN_PHONE_DIGITS = 6
 const MIN_PHONE_SUFFIX_DIGITS = 7
 const PHONE_RUN = /\+?\d[\d\s().\-/]{4,}\d/g
 
-/** NFKC, lower case, letters, digits, '@' and '.' only: "Åsa B." → "åsab." */
+/** NFKC, lower case, letters, digits and '@' only: "Åsa B." → "åsab", "a.b@c.se" → "ab@cse". */
 function normalise(value: string): string {
-  return value.normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}@.]/gu, '')
+  return value.normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}@]/gu, '')
 }
 
 /**
@@ -229,18 +232,27 @@ function stringsOf(value: unknown): string[] {
  */
 function looksAutofilled(fields: Record<string, unknown>): boolean {
   const raw = String(fields[HONEYPOT_FIELD])
+  if (raw.length > MAX_AUTOFILL_CHARS) return false
   const hp = normalise(raw)
+  if (hp.replace(/@/g, '').length < MIN_AUTOFILL_CHARS) return false
+  // Each word on its own too, so "Anna Svensson" matches "Anna S." and "A. Svensson".
+  const hpWords = raw.split(/\s+/).map(normalise).filter((w) => w.length >= MIN_AUTOFILL_CHARS)
   const hpPhones = phoneNumbers(raw)
   const spamFields: ReadonlySet<string> = new Set(SPAM_FIELDS)
   return Object.entries(fields).some(
     ([key, value]) =>
       !spamFields.has(key) &&
       stringsOf(value).some((s) => {
-        if (hpPhones.length && phoneNumbers(s).some((p) => hpPhones.some((h) => samePhone(h, p)))) return true
+        if (hpPhones.length) {
+          if (phoneNumbers(s).some((p) => hpPhones.some((h) => samePhone(h, p)))) return true
+          // Two numbers in one field ("070-… / 08-…") run together into one: look inside its digits.
+          const digits = s.replace(/\D/g, '')
+          if (hpPhones.some((h) => h.length >= MIN_PHONE_SUFFIX_DIGITS && digits.includes(h))) return true
+        }
         const v = normalise(s)
-        if (hp.length < MIN_AUTOFILL_CHARS || v.length < MIN_AUTOFILL_CHARS) return false
+        if (v.length < MIN_AUTOFILL_CHARS) return false
         const short = v.length <= SHORT_VALUE_CHARS && s.trim().split(/\s+/).length <= SHORT_VALUE_WORDS
-        if (short) return v.includes(hp) || hp.includes(v)
+        if (short) return v.includes(hp) || hp.includes(v) || hpWords.some((w) => v.includes(w))
         return hp.length >= MIN_IN_LONG_TEXT_CHARS && v.includes(hp)
       })
   )

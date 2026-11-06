@@ -10,11 +10,14 @@ Site action needed: no. Upgrade to stop gibberish bot posts reaching clients as 
   the honeypot value matches another field, as a password manager's autofill does. Otherwise it is
   a bot that solves the challenge: fake success, dropped. In 1.3.0 every verified honeypot hit was
   sent, which let random-string spam through (#21).
-  - Text ignores case, Unicode composition (å/ä/ö) and everything but letters, digits, `@` and `.`.
-    Part of a value counts (a first name), with at least 3 characters; in free text (more than 4
-    words or 80 characters) the honeypot needs at least 6.
+  - Text ignores case, Unicode composition (å/ä/ö) and everything but letters, digits and `@`.
+    The honeypot needs at least 3 letters or digits and at most 254 characters. Part of a value
+    counts either way round (`Anna` = `Anna Svensson`), and so does one word of the honeypot
+    (`Anna Svensson` = `Anna S.`). In free text (more than 4 words, or over 80 characters once
+    spaces and punctuation are gone) only the whole honeypot counts, with at least 6 characters.
   - Phone numbers compare as national numbers, so `+46 8 12 34 56`, `0046 8 12 34 56`,
-    `+46 (0)8 12 34 56` and `08-12 34 56` match, also with text around the number.
+    `+46 (0)8 12 34 56` and `08-12 34 56` match, also with text around the number or two numbers
+    in one field.
   - Every field counts, `messageFields` included, and numbers and arrays in JSON bodies.
   - A drop is logged with the shape of the honeypot value, never the value:
     `honeypot token=yes match=no kind=token|email|phone|words len=… provider=…`. A `kind` other
