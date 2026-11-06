@@ -2,6 +2,16 @@
 
 Each version says whether a site needs to change anything after upgrading.
 
+## 1.3.1
+
+Site action needed: no. Upgrade to stop gibberish bot posts reaching clients as `[misstänkt spam]`.
+
+- `checkSubmission`: a verified post with a filled honeypot is sent with `flag: 'honeypot'` only if
+  the honeypot value matches another field (ignoring case, spaces and punctuation, at least 3
+  characters; part of a value counts, e.g. a first name). Otherwise it is a bot that solves the
+  challenge: fake success, dropped, logged as `honeypot token=yes match=no provider=…`. In 1.3.0
+  every verified honeypot hit was sent, which let random-string spam through (#21).
+
 ## 1.3.0
 
 Site action needed: no. Routes that prefix the subject when `spam.flag` is set flag the new case

@@ -5,9 +5,11 @@
 //
 // Layers, in order:
 // 1. Honeypot — a filled-in hidden field with no token gets a fake success and is
-//    dropped, so bots don't learn they were caught. With a token it is almost always
-//    a password manager's autofill: the provider decides, and a verified post is
-//    sent with the flag 'honeypot'.
+//    dropped, so bots don't learn they were caught. With a token it may be a
+//    password manager's autofill: the provider decides. A verified post is sent
+//    with the flag 'honeypot' only if the honeypot holds a copy of another field
+//    (autofill copies the visitor's name, e-mail or phone); a value of its own
+//    means a bot that solves the challenge, and it gets the fake success.
 // 2. Configuration — fails closed: a missing provider setting answers 503
 //    instead of sending unverified mail. Only `astro dev` lets posts through.
 // 3. Rate limit — 5 verified posts per 10 minutes per client. Only looked at
@@ -24,7 +26,7 @@ import { createHash, randomBytes } from 'node:crypto'
 import { env } from './runtime-env'
 import { altchaConfigured, verifyAltcha } from './spam-altcha'
 import { contentFlag, type Flag } from './spam-content'
-import { ALTCHA_FIELD, HONEYPOT_FIELD, RECAPTCHA_TOKEN_FIELD } from './spam-fields'
+import { ALTCHA_FIELD, HONEYPOT_FIELD, RECAPTCHA_TOKEN_FIELD, SPAM_FIELDS } from './spam-fields'
 import { submitLimiter } from './spam-ratelimit'
 import { missingRecaptchaKeys, verifyRecaptchaToken, type Verdict } from './spam-recaptcha'
 
@@ -177,6 +179,28 @@ function hasText(value: unknown): boolean {
   return typeof value === 'string' && value.trim() !== ''
 }
 
+const MIN_AUTOFILL_CHARS = 3
+
+/** Lower case, letters, digits, '@' and '.' only: "070-123 45 67" → "0701234567". */
+function normalise(value: string): string {
+  return value.toLowerCase().replace(/[^\p{L}\p{N}@.]/gu, '')
+}
+
+/**
+ * Whether the honeypot holds a copy of another field, as a password manager's
+ * autofill does (the visitor's name, e-mail or phone, possibly only part of it).
+ * Bots that solve the challenge write a value of their own.
+ */
+function looksAutofilled(fields: Record<string, unknown>): boolean {
+  const hp = normalise(String(fields[HONEYPOT_FIELD]))
+  if (hp.length < MIN_AUTOFILL_CHARS) return false
+  return Object.entries(fields).some(([key, value]) => {
+    if ((SPAM_FIELDS as readonly string[]).includes(key) || typeof value !== 'string') return false
+    const v = normalise(value)
+    return v.length >= MIN_AUTOFILL_CHARS && (v.includes(hp) || hp.includes(v))
+  })
+}
+
 // ---- the check ----
 
 /**
@@ -258,6 +282,10 @@ export async function checkSubmission(
     submitLimiter.record(key)
   }
   if (honeypot) {
+    if (!looksAutofilled(f)) {
+      log('honeypot', { token: 'yes', match: 'no', provider: p })
+      return { reason: 'honeypot' }
+    }
     log('honeypot-overridden', { provider: p })
     return { reason: 'ok', flag: 'honeypot' }
   }

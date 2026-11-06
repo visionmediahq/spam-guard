@@ -7,9 +7,11 @@ Spam protection for the forms on Vision Media's Astro sites.
 - Fails closed: missing configuration, a provider error or an unreachable Google rejects the post
   (503 / 400) instead of sending unverified mail. Only `astro dev` lets posts through on the
   honeypot alone.
-- A filled honeypot with no token gets a fake success and is dropped. With a token it is almost
-  always a password manager's autofill: the provider decides, and a verified post is sent with
-  `flag: 'honeypot'` (so `[misstänkt spam] ` in the subject) instead of being lost.
+- A filled honeypot with no token gets a fake success and is dropped. With a token it may be a
+  password manager's autofill: the provider decides. A verified post is sent with
+  `flag: 'honeypot'` (so `[misstänkt spam] ` in the subject) only if the honeypot holds a copy of
+  another field (the visitor's name, e-mail or phone), as autofill does. A value of its own means a
+  bot that solved the challenge: fake success, dropped, logged as `honeypot token=yes match=no`.
 - 5 verified posts per client per 10 minutes. Content rules (many links, very long fields, mostly
   non-Latin text) never drop a message; they only flag it.
 - A browser post without JavaScript gets a 303 back to the form with `#skickat`, `#fel` or `#vanta`,

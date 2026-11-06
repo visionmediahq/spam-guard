@@ -105,7 +105,7 @@ describe('honeypot', () => {
 
   test('a filled honeypot with a verified altcha payload is an autofilled human: sent, flagged', async () => {
     const { g, a } = await load(ALTCHA_ENV)
-    const c = await g.checkSubmission({ hp_x7q2: 'anna@example.se', altcha: await payload(a) }, req('1.2.3.4'))
+    const c = await g.checkSubmission({ email: 'anna@example.se', hp_x7q2: 'anna@example.se', altcha: await payload(a) }, req('1.2.3.4'))
     expect(c).toEqual({ reason: 'ok', flag: 'honeypot' })
     expect(logLines()).toContain('[spam-guard] honeypot-overridden provider=altcha')
   })
@@ -113,7 +113,7 @@ describe('honeypot', () => {
   test('a filled honeypot with a verified reCAPTCHA token is sent, flagged', async () => {
     const { g } = await load(RECAPTCHA_ENV)
     google(GOOGLE_OK)
-    const c = await g.checkSubmission({ hp_x7q2: 'x', recaptcha_token: 'tok' }, req('1.2.3.4'))
+    const c = await g.checkSubmission({ name: 'Anna Berg', hp_x7q2: 'Anna Berg', recaptcha_token: 'tok' }, req('1.2.3.4'))
     expect(c).toEqual({ reason: 'ok', flag: 'honeypot' })
     expect(logLines()).toContain('[spam-guard] honeypot-overridden provider=recaptcha')
   })
@@ -121,9 +121,45 @@ describe('honeypot', () => {
   test('an overridden honeypot post counts toward the rate limit', async () => {
     const { g, a } = await load(ALTCHA_ENV)
     for (let i = 0; i < 5; i++) {
-      expect((await g.checkSubmission({ hp_x7q2: 'x', altcha: await payload(a) }, req('1.2.3.4'))).reason).toBe('ok')
+      expect((await g.checkSubmission({ email: 'a@b.se', hp_x7q2: 'a@b.se', altcha: await payload(a) }, req('1.2.3.4'))).reason).toBe('ok')
     }
-    expect((await g.checkSubmission({ hp_x7q2: 'x', altcha: await payload(a) }, req('1.2.3.4'))).reason).toBe('rate-limited')
+    expect((await g.checkSubmission({ email: 'a@b.se', hp_x7q2: 'a@b.se', altcha: await payload(a) }, req('1.2.3.4'))).reason).toBe('rate-limited')
+  })
+
+  test('autofill is recognised across case, spacing and phone formatting', async () => {
+    const { g, a } = await load(ALTCHA_ENV)
+    const cases: Record<string, string>[] = [
+      { email: 'Anna@Example.se', hp_x7q2: ' anna@example.se ' },
+      { phone: '070-123 45 67', hp_x7q2: '0701234567' },
+      { name: 'Anna Berg', hp_x7q2: 'Anna' }, // first name only
+    ]
+    for (const fields of cases) {
+      const c = await g.checkSubmission({ ...fields, altcha: await payload(a) }, req('1.2.3.4'))
+      expect(c, JSON.stringify(fields)).toEqual({ reason: 'ok', flag: 'honeypot' })
+    }
+  })
+
+  test('a verified post whose honeypot matches no other field is a bot: fake success, dropped', async () => {
+    const { g, a } = await load(ALTCHA_ENV)
+    const fields = {
+      name: 'hwcxfAXYrTLOWycHCCtig',
+      email: 'el.iyam.a21.9@gmail.com',
+      company: 'Oxthdmb LLC',
+      phone: '9662222542',
+      message: 'QoZpsQqfeJvfKOuDah',
+      hp_x7q2: 'KzPqWvBnTrLmYxCd',
+      altcha: await payload(a),
+    }
+    expect(await g.checkSubmission(fields, req('1.2.3.4'))).toEqual({ reason: 'honeypot' })
+    expect(logLines()).toContain('[spam-guard] honeypot token=yes match=no provider=altcha')
+    expect(logLines().some((l) => l.includes('honeypot-overridden'))).toBe(false)
+  })
+
+  test('a one- or two-character honeypot value never counts as autofill', async () => {
+    const { g } = await load(RECAPTCHA_ENV)
+    google(GOOGLE_OK)
+    const c = await g.checkSubmission({ name: 'Anna Berg', hp_x7q2: 'a', recaptcha_token: 'tok' }, req('1.2.3.4'))
+    expect(c).toEqual({ reason: 'honeypot' })
   })
 
   test('a filled honeypot without a token never reaches the provider', async () => {

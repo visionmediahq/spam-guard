@@ -87,7 +87,10 @@ async function postTest(base: string, stubLog: string): Promise<void> {
   const honeypot = await post('10.2.0.1', { hp_x7q2: 'x' })
   assert(honeypot.status === 200 && (await honeypot.json()).success === true, `honeypot: ${honeypot.status}, want a fake 200`)
   assert(sends() === 0, 'a rejected or honeypot post was sent')
-  const autofilled = await post('10.5.0.1', { hp_x7q2: 'anna@example.se', altcha: await solved(base, '10.9.0.2') })
+  const bot = await post('10.6.0.1', { hp_x7q2: 'KzPqWvBnTrLmYxCd', altcha: await solved(base, '10.9.0.3') })
+  assert(bot.status === 200 && (await bot.json()).success === true, `solved post with a honeypot of its own: ${bot.status}, want a fake 200`)
+  assert(sends() === 0, 'a solved post with a honeypot value of its own was sent')
+  const autofilled = await post('10.5.0.1', { hp_x7q2: 'test@fixture.example', altcha: await solved(base, '10.9.0.2') })
   assert(autofilled.status === 200, `autofilled honeypot with a solution: ${autofilled.status}, want 200`)
   const lines = existsSync(stubLog) ? readFileSync(stubLog, 'utf8').split('\n').filter(Boolean) : []
   assert(lines.length === 1 && lines[0]?.includes('[misstänkt spam] '), `autofilled honeypot: sends ${JSON.stringify(lines)}, want one flagged send`)
@@ -111,7 +114,7 @@ async function postTest(base: string, stubLog: string): Promise<void> {
     req.end(body)
   })
   assert(noJs.status === 303 && noJs.location === '/kontakt/#fel', `no-JS post: ${noJs.status} ${noJs.location}, want 303 /kontakt/#fel`)
-  console.log('post test: nosol=400 honeypot=200(fake) autofilled=200(flagged) solved=200×5 6th=429 no-js=303 #fel sends=6')
+  console.log('post test: nosol=400 honeypot=200(fake) solved-bot=200(fake) autofilled=200(flagged) solved=200×5 6th=429 no-js=303 #fel sends=6')
 }
 
 /** SIGTERM a detached process group, SIGKILL whatever is left after 5 s. */
