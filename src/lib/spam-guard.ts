@@ -5,9 +5,11 @@
 //
 // Layers, in order:
 // 1. Honeypot — a filled-in hidden field with no token gets a fake success and is
-//    dropped, so bots don't learn they were caught. With a token it is almost always
-//    a password manager's autofill: the provider decides, and a verified post is
-//    sent with the flag 'honeypot'.
+//    dropped, so bots don't learn they were caught. With a token it may be a
+//    password manager's autofill: the provider decides. A verified post is sent
+//    with the flag 'honeypot' only if the honeypot holds a copy of another field
+//    (autofill copies the visitor's name, e-mail or phone); a value of its own
+//    means a bot that solves the challenge, and it gets the fake success.
 // 2. Configuration — fails closed: a missing provider setting answers 503
 //    instead of sending unverified mail. Only `astro dev` lets posts through.
 // 3. Rate limit — 5 verified posts per 10 minutes per client. Only looked at
@@ -24,7 +26,7 @@ import { createHash, randomBytes } from 'node:crypto'
 import { env } from './runtime-env'
 import { altchaConfigured, verifyAltcha } from './spam-altcha'
 import { contentFlag, type Flag } from './spam-content'
-import { ALTCHA_FIELD, HONEYPOT_FIELD, RECAPTCHA_TOKEN_FIELD } from './spam-fields'
+import { ALTCHA_FIELD, HONEYPOT_FIELD, RECAPTCHA_TOKEN_FIELD, SPAM_FIELDS } from './spam-fields'
 import { submitLimiter } from './spam-ratelimit'
 import { missingRecaptchaKeys, verifyRecaptchaToken, type Verdict } from './spam-recaptcha'
 
@@ -177,6 +179,106 @@ function hasText(value: unknown): boolean {
   return typeof value === 'string' && value.trim() !== ''
 }
 
+const MIN_AUTOFILL_CHARS = 3
+// No autofill value (a name, an e-mail address, a phone number, an address) is longer. Comparing
+// a longer honeypot would only cost time: the phone comparison grows with the square of the input.
+const MAX_AUTOFILL_CHARS = 254
+// Free text (more words or characters than a name, e-mail or phone): a short honeypot would
+// match almost any, so only a honeypot of MIN_IN_LONG_TEXT_CHARS or more counts there.
+const SHORT_VALUE_WORDS = 6 // a long Swedish name: Anna-Karin Maria Louise af Ugglas
+const SHORT_VALUE_CHARS = 80
+const MIN_IN_LONG_TEXT_CHARS = 6
+const MIN_PHONE_DIGITS = 6
+const MIN_PHONE_SUFFIX_DIGITS = 7
+const PHONE_RUN = /\+?\d[\d\s().\-/]{4,}\d/g
+
+/** NFKC, lower case, letters, digits and '@' only: "Åsa B." → "åsab", "a.b@c.se" → "ab@cse". */
+function normalise(value: string): string {
+  return value.normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}@]/gu, '')
+}
+
+/**
+ * The phone numbers in a value as national significant numbers, so
+ * "+46 8 12 34 56", "0046 8 12 34 56", "+46 (0)8 12 34 56" and "08-12 34 56" are all "8123456".
+ */
+function phoneNumbers(value: string): string[] {
+  return (value.normalize('NFKC').match(PHONE_RUN) ?? [])
+    .map((run) => {
+      const plus = run.startsWith('+')
+      let digits = run.replace(/\(0\)/g, '').replace(/\D/g, '')
+      if (plus && digits.startsWith('46')) digits = digits.slice(2)
+      else if (digits.startsWith('0046')) digits = digits.slice(4)
+      return digits.replace(/^0/, '')
+    })
+    .filter((digits) => digits.length >= MIN_PHONE_DIGITS)
+}
+
+function samePhone(a: string, b: string): boolean {
+  if (a === b) return true
+  const [short, long] = a.length < b.length ? [a, b] : [b, a]
+  return short.length >= MIN_PHONE_SUFFIX_DIGITS && long.endsWith(short) // a foreign country code
+}
+
+const MAX_DEPTH = 3
+
+/** A field's string values: strings and numbers, also inside arrays and nested JSON objects. */
+function stringsOf(value: unknown, depth = 0): string[] {
+  if (typeof value === 'string' || typeof value === 'number') return [String(value)]
+  if (depth >= MAX_DEPTH || value === null || typeof value !== 'object') return []
+  return Object.values(value).flatMap((v) => stringsOf(v, depth + 1))
+}
+
+/**
+ * Whether the honeypot holds a copy of another field, as a password manager's
+ * autofill does (the visitor's name, e-mail or phone, possibly only part of it).
+ * Bots that solve the challenge write a value of their own.
+ */
+function looksAutofilled(fields: Record<string, unknown>): boolean {
+  const raw = String(fields[HONEYPOT_FIELD])
+  if (raw.length > MAX_AUTOFILL_CHARS) return false
+  const hp = normalise(raw)
+  if (hp.replace(/@/g, '').length < MIN_AUTOFILL_CHARS) return false
+  const spamFields: ReadonlySet<string> = new Set(SPAM_FIELDS)
+  const values = Object.entries(fields)
+    .filter(([key]) => !spamFields.has(key))
+    .flatMap(([, value]) => stringsOf(value))
+
+  // A name split over several fields ("Bo" + "Ek" = "Bo Ek"): every honeypot word is a whole field.
+  const allWords = raw.split(/\s+/).map(normalise).filter(Boolean)
+  const whole = new Set(values.map(normalise))
+  if (allWords.length > 1 && allWords.every((w) => whole.has(w))) return true
+
+  // Each word on its own too, so "Anna Svensson" matches "Anna S." and "A. Svensson".
+  const hpWords = allWords.filter((w) => w.length >= MIN_AUTOFILL_CHARS)
+  const hpPhones = phoneNumbers(raw)
+  return values.some((s) => {
+    if (hpPhones.length) {
+      if (phoneNumbers(s).some((p) => hpPhones.some((h) => samePhone(h, p)))) return true
+      // Two numbers in one field ("070-… / 08-…") run together into one: look inside its digits.
+      const digits = s.replace(/\D/g, '')
+      if (hpPhones.some((h) => h.length >= MIN_PHONE_SUFFIX_DIGITS && digits.includes(h))) return true
+    }
+    const v = normalise(s)
+    if (v.length < MIN_AUTOFILL_CHARS) return false
+    const short = v.length <= SHORT_VALUE_CHARS && s.trim().split(/\s+/).length <= SHORT_VALUE_WORDS
+    if (short) return v.includes(hp) || hp.includes(v) || hpWords.some((w) => v.includes(w))
+    return hp.length >= MIN_IN_LONG_TEXT_CHARS && v.includes(hp)
+  })
+}
+
+/** The shape of a honeypot value for the log, never the value: an e-mail, phone, words or one token. */
+function honeypotShape(value: string): { kind: string; len: number } {
+  const v = value.trim()
+  const kind = v.includes('@')
+    ? 'email'
+    : /^\+?\d[\d\s().\-/]*$/.test(v) && phoneNumbers(v).length
+      ? 'phone'
+      : /\s/.test(v)
+        ? 'words'
+        : 'token'
+  return { kind, len: v.length }
+}
+
 // ---- the check ----
 
 /**
@@ -192,6 +294,7 @@ export async function checkSubmission(
   options: CheckOptions = {}
 ): Promise<Check> {
   const f = fields ?? {}
+  const messageFields = options.messageFields ?? ['message']
 
   // 1. Honeypot. Without a token it is a bot. With one it is usually a password
   //    manager's autofill (1Password and LastPass ignore autocomplete="off"), so the
@@ -258,10 +361,14 @@ export async function checkSubmission(
     submitLimiter.record(key)
   }
   if (honeypot) {
+    if (!looksAutofilled(f)) {
+      log('honeypot', { token: 'yes', match: 'no', ...honeypotShape(String(f[HONEYPOT_FIELD])), provider: p })
+      return { reason: 'honeypot' }
+    }
     log('honeypot-overridden', { provider: p })
     return { reason: 'ok', flag: 'honeypot' }
   }
-  const flag = request ? contentFlag(f, options.messageFields ?? ['message']) : undefined
+  const flag = request ? contentFlag(f, messageFields) : undefined
 
   if (p === 'altcha' || flag) log('accepted', { provider: p, age_s: verdict.ageS, flag })
   return flag ? { reason: 'ok', flag } : { reason: 'ok' }

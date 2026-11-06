@@ -105,7 +105,7 @@ describe('honeypot', () => {
 
   test('a filled honeypot with a verified altcha payload is an autofilled human: sent, flagged', async () => {
     const { g, a } = await load(ALTCHA_ENV)
-    const c = await g.checkSubmission({ hp_x7q2: 'anna@example.se', altcha: await payload(a) }, req('1.2.3.4'))
+    const c = await g.checkSubmission({ email: 'anna@example.se', hp_x7q2: 'anna@example.se', altcha: await payload(a) }, req('1.2.3.4'))
     expect(c).toEqual({ reason: 'ok', flag: 'honeypot' })
     expect(logLines()).toContain('[spam-guard] honeypot-overridden provider=altcha')
   })
@@ -113,7 +113,7 @@ describe('honeypot', () => {
   test('a filled honeypot with a verified reCAPTCHA token is sent, flagged', async () => {
     const { g } = await load(RECAPTCHA_ENV)
     google(GOOGLE_OK)
-    const c = await g.checkSubmission({ hp_x7q2: 'x', recaptcha_token: 'tok' }, req('1.2.3.4'))
+    const c = await g.checkSubmission({ name: 'Anna Berg', hp_x7q2: 'Anna Berg', recaptcha_token: 'tok' }, req('1.2.3.4'))
     expect(c).toEqual({ reason: 'ok', flag: 'honeypot' })
     expect(logLines()).toContain('[spam-guard] honeypot-overridden provider=recaptcha')
   })
@@ -121,9 +121,133 @@ describe('honeypot', () => {
   test('an overridden honeypot post counts toward the rate limit', async () => {
     const { g, a } = await load(ALTCHA_ENV)
     for (let i = 0; i < 5; i++) {
-      expect((await g.checkSubmission({ hp_x7q2: 'x', altcha: await payload(a) }, req('1.2.3.4'))).reason).toBe('ok')
+      expect((await g.checkSubmission({ email: 'a@b.se', hp_x7q2: 'a@b.se', altcha: await payload(a) }, req('1.2.3.4'))).reason).toBe('ok')
     }
-    expect((await g.checkSubmission({ hp_x7q2: 'x', altcha: await payload(a) }, req('1.2.3.4'))).reason).toBe('rate-limited')
+    expect((await g.checkSubmission({ email: 'a@b.se', hp_x7q2: 'a@b.se', altcha: await payload(a) }, req('1.2.3.4'))).reason).toBe('rate-limited')
+  })
+
+  test('autofill is recognised across case, spacing and phone formatting', async () => {
+    const { g, a } = await load(ALTCHA_ENV)
+    const cases: Record<string, string>[] = [
+      { email: 'Anna@Example.se', hp_x7q2: ' anna@example.se ' },
+      { phone: '070-123 45 67', hp_x7q2: '0701234567' },
+      { name: 'Anna Berg', hp_x7q2: 'Anna' }, // first name only
+      { phone: '070-123 45 67', hp_x7q2: '+46 70 123 45 67' }, // stored with the country code
+      { phone: '070.123.45.67', hp_x7q2: '070-123 45 67' },
+      { name: '\u00c5sa Str\u00f6m', hp_x7q2: 'A\u030asa Stro\u0308m' }, // composed vs decomposed å ö
+      { phone: '031-12 34 56', hp_x7q2: '+46 31 12 34 56' }, // short landline
+      { phone: '08-12 34 56', hp_x7q2: '+46 8 12 34 56' },
+      { phone: '+46 40 12 34 56', hp_x7q2: '040-12 34 56' },
+      { phone: '08-123 45 67', hp_x7q2: '0046 8 123 45 67' },
+      { phone: '+46 (0)8 123 45 67', hp_x7q2: '08-123 45 67' },
+      { phone: '070-123 45 67 (mobil)', hp_x7q2: '+46701234567' }, // text around the number
+      { address: 'Storgatan 12, 831 30 Östersund', hp_x7q2: 'Storgatan 12' }, // part of a longer value
+      { name: 'Anna S.', hp_x7q2: 'Anna Svensson' }, // initials
+      { name: 'A. Svensson', hp_x7q2: 'A Svensson' },
+      { name: 'Anna M. Svensson', hp_x7q2: 'Anna Svensson' },
+      { phone: '070-123 45 67 / 08-123 45 67', hp_x7q2: '+46 70 123 45 67' }, // two numbers in one field
+      { phone: '070 123 45 67 08 123 45 67', hp_x7q2: '+46 8 123 45 67' },
+      { fornamn: 'Bo', efternamn: 'Ek', hp_x7q2: 'Bo Ek' }, // split name fields, two-letter names
+      { name: 'Anna-Karin Maria Louise af Ugglas', hp_x7q2: 'Anna-Karin' }, // a 5-word name
+    ]
+    for (const [i, fields] of cases.entries()) {
+      const c = await g.checkSubmission({ ...fields, altcha: await payload(a) }, req(`1.2.3.${i + 1}`))
+      expect(c, JSON.stringify(fields)).toEqual({ reason: 'ok', flag: 'honeypot' })
+    }
+  })
+
+  test('a verified post whose honeypot matches no other field is a bot: fake success, dropped', async () => {
+    const { g, a } = await load(ALTCHA_ENV)
+    const fields = {
+      name: 'hwcxfAXYrTLOWycHCCtig',
+      email: 'el.iyam.a21.9@gmail.com',
+      company: 'Oxthdmb LLC',
+      phone: '9662222542',
+      message: 'QoZpsQqfeJvfKOuDah',
+      hp_x7q2: 'KzPqWvBnTrLmYxCd',
+      altcha: await payload(a),
+    }
+    expect(await g.checkSubmission(fields, req('1.2.3.4'))).toEqual({ reason: 'honeypot' })
+    expect(logLines()).toContain('[spam-guard] honeypot token=yes match=no kind=token len=16 provider=altcha')
+    expect(logLines().some((l) => l.includes('honeypot-overridden'))).toBe(false)
+  })
+
+  test('JSON numbers and arrays count as fields to match', async () => {
+    const { g, a } = await load(ALTCHA_ENV)
+    const cases: Record<string, unknown>[] = [
+      { phone: 701234567, hp_x7q2: '070 123 45 67' },
+      { emails: ['x@y.se', 'anna@example.se'], hp_x7q2: 'anna@example.se' },
+      { contact: { name: 'Anna Berg', email: 'anna@example.se' }, hp_x7q2: 'anna@example.se' }, // nested
+    ]
+    for (const fields of cases) {
+      const c = await g.checkSubmission({ ...fields, altcha: await payload(a) }, req('1.2.3.4'))
+      expect(c, JSON.stringify(fields)).toEqual({ reason: 'ok', flag: 'honeypot' })
+    }
+  })
+
+  test('a name listed in messageFields still counts as a match', async () => {
+    const { g, a } = await load(ALTCHA_ENV)
+    const fields = { namn: 'Anna Berg', meddelande: 'Hej!', hp_x7q2: 'Anna Berg', altcha: await payload(a) }
+    const c = await g.checkSubmission(fields, req('1.2.3.4'), { messageFields: ['namn', 'meddelande'] })
+    expect(c).toEqual({ reason: 'ok', flag: 'honeypot' })
+  })
+
+  test('a short honeypot does not match by being part of a long message', async () => {
+    const { g, a } = await load(ALTCHA_ENV)
+    const message = 'Hej, det gäller en offert på tre maskiner till vårt lager i Östersund, gärna snart.'
+    const fields = { name: 'Anna Berg', message, hp_x7q2: 'det', altcha: await payload(a) }
+    expect(await g.checkSubmission(fields, req('1.2.3.4'))).toEqual({ reason: 'honeypot' })
+  })
+
+  test('a dropped honeypot logs the shape of its value, never the value', async () => {
+    const { g, a } = await load(ALTCHA_ENV)
+    const shapes: [string, string][] = [
+      ['KzPqWvBnTrLmYxCd', 'kind=token len=16'],
+      ['someone@example.se', 'kind=email len=18'],
+      ['+46 8 99 99 99', 'kind=phone len=14'],
+      ['Nils Holm', 'kind=words len=9'],
+    ]
+    for (const [i, [hp, shape]] of shapes.entries()) {
+      await g.checkSubmission({ name: 'Anna Berg', hp_x7q2: hp, altcha: await payload(a) }, req(`1.2.4.${i + 1}`))
+      expect(logLines()).toContain(`[spam-guard] honeypot token=yes match=no ${shape} provider=altcha`)
+    }
+    expect(logLines().join('\n')).not.toMatch(/KzPq|someone|Nils/)
+  })
+
+  test('a dropped solving bot still counts toward the rate limit', async () => {
+    const { g, a } = await load(ALTCHA_ENV)
+    for (let i = 0; i < 5; i++) {
+      expect((await g.checkSubmission({ hp_x7q2: 'KzPqWvBnTr', altcha: await payload(a) }, req('1.2.3.4'))).reason).toBe('honeypot')
+    }
+    expect((await g.checkSubmission({ name: 'Anna', altcha: await payload(a) }, req('1.2.3.4'))).reason).toBe('rate-limited')
+  })
+
+  test('split two-letter names count only as a whole: one short word is not enough', async () => {
+    const { g, a } = await load(ALTCHA_ENV)
+    const c = await g.checkSubmission({ fornamn: 'Bo', efternamn: 'Ek', hp_x7q2: 'Bo Xq', altcha: await payload(a) }, req('1.2.3.4'))
+    expect(c).toEqual({ reason: 'honeypot' })
+  })
+
+  test('a honeypot needs 3 letters or digits: punctuation alone never counts', async () => {
+    const { g, a } = await load(ALTCHA_ENV)
+    const c = await g.checkSubmission({ name: 'Hm...', hp_x7q2: '...', altcha: await payload(a) }, req('1.2.3.4'))
+    expect(c).toEqual({ reason: 'honeypot' })
+  })
+
+  test('a honeypot longer than any autofill value is dropped without comparing (no quadratic work)', async () => {
+    const { g, a } = await load(ALTCHA_ENV)
+    const runs = Array.from({ length: 20000 }, (_, i) => String(1000000 + i)).join('x')
+    const started = performance.now()
+    const c = await g.checkSubmission({ message: runs, phone: runs, hp_x7q2: runs, altcha: await payload(a) }, req('1.2.3.4'))
+    expect(c).toEqual({ reason: 'honeypot' })
+    expect(performance.now() - started).toBeLessThan(500)
+  })
+
+  test('a one- or two-character honeypot value never counts as autofill', async () => {
+    const { g } = await load(RECAPTCHA_ENV)
+    google(GOOGLE_OK)
+    const c = await g.checkSubmission({ name: 'Anna Berg', hp_x7q2: 'a', recaptcha_token: 'tok' }, req('1.2.3.4'))
+    expect(c).toEqual({ reason: 'honeypot' })
   })
 
   test('a filled honeypot without a token never reaches the provider', async () => {
