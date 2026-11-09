@@ -328,10 +328,32 @@ describe('sender blocklist', () => {
 
   test('a phone number matches in any national or international form', async () => {
     const { g, a } = await blocked()
-    for (const phone of ['070-000 00 00', '0046 70 000 00 00', '+46 (0)70 000 00 00', 'ring 0700000000 efter 5']) {
+    for (const phone of ['070-000 00 00', '0046 70 000 00 00', '+46 (0)70 000 00 00', '0700000000 / 0701112233', '0701112233 0700000000']) {
       expect((await g.checkSubmission({ phone, altcha: await payload(a) }, req('1.2.3.4'))).reason).toBe('honeypot')
     }
     expect(logLines()).toContain('[spam-guard] blocked kind=phone provider=altcha')
+  })
+
+  test('another area code or a longer number is someone else', async () => {
+    const { g, a } = await blocked({ SPAM_BLOCK: 'phone:08-123 45 67, phone:031-12 34 56' })
+    for (const phone of ['018-123 45 67', '070-812 34 567', '123 45 67', '0731-12 34 56', '+1 812 345 67']) {
+      expect((await g.checkSubmission({ phone, altcha: await payload(a) }, req('1.2.3.4'))).reason).toBe('ok')
+    }
+  })
+
+  test('a foreign number matches in + and 00 form', async () => {
+    const { g, a } = await blocked({ SPAM_BLOCK: 'phone:+1 (555) 010-0199' })
+    for (const phone of ['+15550100199', '001 555 010 0199']) {
+      expect((await g.checkSubmission({ phone, altcha: await payload(a) }, req('1.2.3.4'))).reason).toBe('honeypot')
+    }
+    expect((await g.checkSubmission({ phone: '555 010 0199', altcha: await payload(a) }, req('1.2.3.5'))).reason).toBe('ok')
+  })
+
+  test('trailing punctuation after an address does not hide it', async () => {
+    const { g, a } = await blocked()
+    for (const email of ['spam@example.se.', 'x@junk.example!']) {
+      expect((await g.checkSubmission({ email, altcha: await payload(a) }, req('1.2.3.4'))).reason).toBe('honeypot')
+    }
   })
 
   test('a blocked sender is dropped even when the honeypot looks autofilled', async () => {
@@ -341,21 +363,23 @@ describe('sender blocklist', () => {
     expect(logLines()).toContain('[spam-guard] blocked kind=email provider=altcha')
   })
 
-  test('a shorter number that is only the end of a blocked one is not dropped', async () => {
-    const { g, a } = await blocked({ SPAM_BLOCK: 'phone:08-123 45 67' })
-    expect((await g.checkSubmission({ phone: '123 45 67', altcha: await payload(a) }, req('1.2.3.4'))).reason).toBe('ok')
-    expect((await g.checkSubmission({ phone: '+1 812 345 67', altcha: await payload(a) }, req('1.2.3.5'))).reason).toBe('honeypot') // foreign code in front
-  })
-
-  test('any field counts, also numbers and nested JSON, except the message fields', async () => {
+  test('any field whose value is an address or number counts, nested JSON and arrays too', async () => {
     const { g, a } = await blocked()
     expect((await g.checkSubmission({ contact: { mail: 'spam@example.se' }, altcha: await payload(a) }, req('1.2.3.4'))).reason).toBe('honeypot')
-    expect((await g.checkSubmission({ tel: 46700000000, altcha: await payload(a) }, req('1.2.3.4'))).reason).toBe('honeypot') // a JSON number
-    // A real customer quoting a spammer in the message is not dropped.
-    const quote = { email: 'anna@kund.se', message: 'Vi fick spam från spam@example.se', altcha: await payload(a) }
-    expect((await g.checkSubmission(quote, req('1.2.3.6'))).reason).toBe('ok')
-    const custom = { email: 'anna@kund.se', fritext: 'ring 070-000 00 00?', altcha: await payload(a) }
-    expect((await g.checkSubmission(custom, req('1.2.3.6'), { messageFields: ['fritext'] })).reason).toBe('ok')
+    expect((await g.checkSubmission({ tel: ['070-000 00 00'], altcha: await payload(a) }, req('1.2.3.4'))).reason).toBe('honeypot')
+  })
+
+  test('an address or number inside free text is not looked at, whatever the field is called', async () => {
+    const { g, a } = await blocked()
+    const posts = [
+      { email: 'anna@kund.se', message: 'Vi fick spam från spam@example.se', altcha: '' },
+      { email: 'anna@kund.se', subject: 'Fråga om spam@example.se', altcha: '' },
+      { email: 'anna@kund.se', ovrigt: 'ring 070-000 00 00 efter 5', altcha: '' },
+    ]
+    for (const p of posts) {
+      p.altcha = await payload(a)
+      expect((await g.checkSubmission(p, req('1.2.3.6'))).reason).toBe('ok')
+    }
   })
 
   test('entries passed in code add to SPAM_BLOCK', async () => {

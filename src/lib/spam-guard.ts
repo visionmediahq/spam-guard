@@ -289,10 +289,45 @@ function honeypotShape(value: string): { kind: string; len: number } {
 
 // ---- sender blocklist ----
 
-type Block = { emails: Set<string>; domains: string[]; phones: string[] }
+type Block = { emails: Set<string>; domains: string[]; phones: Set<string> }
 
-const EMAIL = /[^\s@<>()[\]{},;:"']+@[^\s@<>()[\]{},;:"']+\.[^\s@<>()[\]{},;:"']+/g
+// A whole field value that is one e-mail address (trailing punctuation is stripped first).
+const WHOLE_EMAIL = /^[^\s@<>()[\]{},;:"']+@[^\s@<>()[\]{},;:"']+\.[^\s@<>()[\]{},;:"']+$/
+const TRAILING_PUNCTUATION = /[.!?/,;:]+$/
 const DOMAIN = /^[\p{L}\p{N}-]+(\.[\p{L}\p{N}-]+)+$/u
+// A whole field value made of phone-number characters only: one or more numbers.
+const WHOLE_PHONE = /^[+\d\s().\-/]+$/
+
+/** A field value as one lower-case e-mail address, or null when it is anything else. */
+function wholeEmail(value: string): string | null {
+  const v = value.trim().normalize('NFKC').toLowerCase().replace(TRAILING_PUNCTUATION, '')
+  return WHOLE_EMAIL.test(v) ? v : null
+}
+
+/**
+ * One phone number as a comparable key: a Swedish number as its national number
+ * ("+46 70 …" = "0046 70 …" = "070 …" → "se:70…"), any other country's in international form
+ * ("+1 555 …" = "001 555 …" → "+1555…"). Compared exactly: another area code, or a number
+ * missing its area code, is someone else.
+ */
+function phoneKey(run: string): string | null {
+  const s = run.replace(/\(0\)/g, '').trim()
+  const digits = s.replace(/\D/g, '')
+  const intl = s.startsWith('+') ? digits : digits.startsWith('00') ? digits.slice(2) : null
+  if (intl !== null && !intl.startsWith('46')) return intl.length >= MIN_PHONE_DIGITS ? '+' + intl : null
+  const national = (intl === null ? digits : intl.slice(2)).replace(/^0/, '')
+  return national.length >= MIN_PHONE_DIGITS ? 'se:' + national : null
+}
+
+/** The phone numbers in a value made only of number characters; two in one field are split apart. */
+function phoneKeys(value: string): string[] {
+  const v = value.normalize('NFKC')
+  if (!WHOLE_PHONE.test(v.trim())) return []
+  const runs = v.match(PHONE_RUN) ?? []
+  // "0700000000 0701112233" or "070… / 08…" is one run: also try the pieces that start a new number.
+  const pieces = runs.flatMap((run) => [run, ...run.split(/\s*\/\s*|\s+(?=[+0])/)])
+  return pieces.map(phoneKey).filter((k): k is string => k !== null)
+}
 
 /**
  * Parse blocklist entries: `email:a@b.se` (exact), `email:@b.se` (the domain and its subdomains),
@@ -301,18 +336,19 @@ const DOMAIN = /^[\p{L}\p{N}-]+(\.[\p{L}\p{N}-]+)+$/u
  * position, never by value.
  */
 function parseBlock(entries: string[], source: string): Block {
-  const block: Block = { emails: new Set(), domains: [], phones: [] }
+  const block: Block = { emails: new Set(), domains: [], phones: new Set() }
   const skipped: number[] = []
   entries.forEach((raw, i) => {
     const colon = raw.indexOf(':')
     const kind = raw.slice(0, colon).trim().toLowerCase()
     const value = raw.slice(colon + 1).trim().normalize('NFKC').toLowerCase()
+    const phone = WHOLE_PHONE.test(value) && (value.match(PHONE_RUN) ?? []).length === 1 ? phoneKey(value) : null
     if (colon > 0 && kind === 'email' && value.startsWith('@') && DOMAIN.test(value.slice(1))) {
       block.domains.push(value.slice(1))
-    } else if (colon > 0 && kind === 'email' && (value.match(EMAIL) ?? [])[0] === value) {
+    } else if (colon > 0 && kind === 'email' && wholeEmail(value) === value) {
       block.emails.add(value)
-    } else if (colon > 0 && kind === 'phone' && phoneNumbers(value).length === 1) {
-      block.phones.push(phoneNumbers(value)[0] ?? '')
+    } else if (colon > 0 && kind === 'phone' && phone) {
+      block.phones.add(phone)
     } else {
       skipped.push(i + 1)
     }
@@ -333,24 +369,26 @@ function blockedKind(fields: Record<string, unknown>, messageFields: string[], e
   const fromCode = parseBlock(extra.flatMap((e) => splitEntries(e)), 'checkSubmission block')
   const emails = new Set([...fromEnv.emails, ...fromCode.emails])
   const domains = [...fromEnv.domains, ...fromCode.domains]
-  const phones = [...fromEnv.phones, ...fromCode.phones]
-  if (!emails.size && !domains.length && !phones.length) return null
+  const phones = new Set([...fromEnv.phones, ...fromCode.phones])
+  if (!emails.size && !domains.length && !phones.size) return null
 
+  // Only values that are an address or a number as a whole: the sender's own contact fields.
+  // Free text in any field (a message, a subject, a note) is never searched, so a customer who
+  // mentions a blocked address or number is not dropped.
   const skip: ReadonlySet<string> = new Set([...SPAM_FIELDS, ...messageFields])
   const values = Object.entries(fields)
     .filter(([key]) => !skip.has(key))
     .flatMap(([, value]) => stringsOf(value))
     .filter((s) => s.length <= MAX_AUTOFILL_CHARS) // a sender's address or number is never longer
   for (const s of values) {
-    for (const address of s.normalize('NFKC').toLowerCase().match(EMAIL) ?? []) {
+    const address = wholeEmail(s)
+    if (address) {
       if (emails.has(address)) return 'email'
       const domain = address.slice(address.lastIndexOf('@') + 1)
       if (domains.some((d) => domain === d || domain.endsWith('.' + d))) return 'domain'
+    } else if (phones.size && phoneKeys(s).some((k) => phones.has(k))) {
+      return 'phone'
     }
-    // The post's number may carry more in front (a foreign country code), never less: "123 45 67"
-    // alone is not the blocked "08-123 45 67".
-    const has = (p: string, b: string) => p === b || (b.length >= MIN_PHONE_SUFFIX_DIGITS && p.endsWith(b))
-    if (phones.length && phoneNumbers(s).some((p) => phones.some((b) => has(p, b)))) return 'phone'
   }
   return null
 }
