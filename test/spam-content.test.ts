@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { contentFlag } from '../src/lib/spam-content'
+import { contentFlag, gibberishFields } from '../src/lib/spam-content'
 
 const MSG = ['message']
 const CYRILLIC = 'Здравствуйте, предлагаем услуги продвижения сайта в поисковых системах'
@@ -68,5 +68,50 @@ describe('contentFlag — not flagged', () => {
 
   test('a missing message field', () => {
     expect(contentFlag({ name: 'Anna' }, MSG)).toBeUndefined()
+  })
+})
+
+// The bot posts from #21: one token per field, random mixed case.
+const BOT = {
+  name: 'hwcxfAXYrTLOWycHCCtig',
+  subject: 'OTMnsXReosGoBENrOaR',
+  message: 'dYKJudPbgHFwCvHxCXhmIrFW',
+  company: 'Oxthdmb LLC',
+  email: 'el.iyam.a21.9@gmail.com',
+  phone: '9662222542',
+}
+
+describe('gibberish', () => {
+  test('the bot posts from #21 are flagged, every gibberish field named', () => {
+    expect(contentFlag(BOT, MSG)).toBe('gibberish')
+    expect(gibberishFields(BOT)).toEqual(['name', 'subject', 'message'])
+  })
+
+  test('one gibberish field is enough to flag', () => {
+    expect(contentFlag({ name: 'Anna Berg', message: 'gVBrbxuZeTrYShgOgTG' }, MSG)).toBe('gibberish')
+    expect(gibberishFields({ name: 'Anna Berg', message: 'gVBrbxuZeTrYShgOgTG' })).toEqual(['message'])
+  })
+
+  test('real names, words and messages are not', () => {
+    const real = [
+      'Anna-Karin Svensson', 'Johansson', 'Kalle', 'MacBookProMax', 'McDonald', 'VeryImportantMessage',
+      'SVENSSON', 'Hälsningsfrasförlängning', 'iPhone', 'XMLHttpRequest', 'eBay', 'Hej! Kan ni ringa mig?',
+      'abcdefghijklmnop', 'ÅSA ÖBERG', 'Ö', '',
+    ]
+    for (const v of real) expect(gibberishFields({ name: v }), v).toEqual([])
+  })
+
+  test('codes with digits or punctuation are not gibberish', () => {
+    for (const v of ['A7fK2pQ9xZ3mB8nR', 'ORD-aBcDeFgHiJkL', 'aBcDeFgHiJkL.se', 'xY_zWqRtYuIoP']) {
+      expect(gibberishFields({ ref: v }), v).toEqual([])
+    }
+  })
+
+  test('spam fields and non-strings are ignored', () => {
+    expect(gibberishFields({ altcha: 'hwcxfAXYrTLOWycHCCtig', hp_x7q2: 'OTMnsXReosGoBENrOaR', n: 7 })).toEqual([])
+  })
+
+  test('a longer rule wins: length and links come first', () => {
+    expect(contentFlag({ name: 'hwcxfAXYrTLOWycHCCtig', message: 'x'.repeat(5001) }, MSG)).toBe('length')
   })
 })

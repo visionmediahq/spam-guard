@@ -21,6 +21,7 @@
 //    dropped. It still counts toward the rate limit.
 // 6. Content rules — never drop; they return a flag and the endpoint prefixes
 //    the e-mail subject with "[misstänkt spam] ".
+//    Gibberish alone can be switched to dropping with SPAM_GIBBERISH=drop.
 //
 // One log line per decision, never message content or a full IP.
 
@@ -28,7 +29,7 @@ import { BlockList, isIP, isIPv4, isIPv6 } from 'node:net'
 import { createHash, randomBytes } from 'node:crypto'
 import { env } from './runtime-env'
 import { altchaConfigured, verifyAltcha } from './spam-altcha'
-import { contentFlag, type Flag } from './spam-content'
+import { contentFlag, gibberishFields, type Flag } from './spam-content'
 import { ALTCHA_FIELD, HONEYPOT_FIELD, RECAPTCHA_TOKEN_FIELD, SPAM_FIELDS } from './spam-fields'
 import { submitLimiter } from './spam-ratelimit'
 import { missingRecaptchaKeys, verifyRecaptchaToken, type Verdict } from './spam-recaptcha'
@@ -542,8 +543,19 @@ export async function checkSubmission(
     return { reason: 'ok', flag: 'honeypot' }
   }
   const flag = request ? contentFlag(f, messageFields) : undefined
+  // Field names only, never values: how many fields a post fills with gibberish tells bots
+  // (every field) from a real visitor's odd entry (one), the evidence for dropping instead.
+  const gibberish = flag === 'gibberish' ? gibberishFields(f).join(',') : undefined
+  if (gibberish !== undefined) {
+    const mode = env('SPAM_GIBBERISH')
+    if (mode === 'drop') {
+      log('blocked', { kind: 'gibberish', fields: gibberish, provider: p })
+      return { reason: 'honeypot' }
+    }
+    if (mode) warnOnce('[spam-guard] SPAM_GIBBERISH must be "drop" or unset: flagging')
+  }
 
-  if (p === 'altcha' || flag) log('accepted', { provider: p, age_s: verdict.ageS, flag })
+  if (p === 'altcha' || flag) log('accepted', { provider: p, age_s: verdict.ageS, flag, fields: gibberish })
   return flag ? { reason: 'ok', flag } : { reason: 'ok' }
 }
 

@@ -4,7 +4,7 @@
 
 import { SPAM_FIELDS } from './spam-fields'
 
-export type Flag = 'links' | 'length' | 'script'
+export type Flag = 'links' | 'length' | 'script' | 'gibberish'
 
 const MAX_LINKS = 2
 const MAX_FIELD_CHARS = 5000
@@ -13,6 +13,35 @@ const MIN_LETTERS_FOR_SCRIPT = 20
 const LINK = /\b(?:https?:\/\/|www\.)\S+/gi // one match per link, not per prefix
 
 const spamFields: ReadonlySet<string> = new Set(SPAM_FIELDS)
+
+// Gibberish (#21): bots that solve the challenge fill every field with one random mixed-case
+// token ("hwcxfAXYrTLOWycHCCtig"). A field counts when its whole value is letters only, at
+// least MIN_GIBBERISH_LETTERS long, switches case at least MIN_CASE_SWITCHES times and has a run
+// of two or more capitals inside the word ("fAXYr"). CamelCase ("MacBookProMax") has its
+// capitals one at a time; names, words and all-caps don't switch; codes have digits.
+const MIN_GIBBERISH_LETTERS = 12
+const MIN_CASE_SWITCHES = 5
+const LETTERS_ONLY = /^\p{L}+$/u
+const CAPITALS_INSIDE = /\p{Ll}\p{Lu}{2,}\p{Ll}/u
+
+function isGibberish(value: string): boolean {
+  const v = value.trim()
+  if (v.length < MIN_GIBBERISH_LETTERS || !LETTERS_ONLY.test(v) || !CAPITALS_INSIDE.test(v)) return false
+  let switches = 0
+  for (let i = 1; i < v.length; i++) {
+    const prevUpper = v[i - 1] !== v[i - 1]?.toLowerCase()
+    const upper = v[i] !== v[i]?.toLowerCase()
+    if (prevUpper !== upper) switches++
+  }
+  return switches >= MIN_CASE_SWITCHES
+}
+
+/** The fields whose whole value looks like a bot's random token, in body order. Names only, never values. */
+export function gibberishFields(fields: Record<string, unknown>): string[] {
+  return Object.entries(fields)
+    .filter(([key, value]) => !spamFields.has(key) && typeof value === 'string' && isGibberish(value))
+    .map(([key]) => key)
+}
 
 /**
  * The first rule a submission trips, or undefined.
@@ -37,5 +66,6 @@ export function contentFlag(fields: Record<string, unknown>, messageFields: stri
     const nonLatin = letters.filter((ch) => !/\p{Script=Latin}/u.test(ch)).length
     if (nonLatin / letters.length > MAX_NON_LATIN_SHARE) return 'script'
   }
+  if (gibberishFields(fields).length) return 'gibberish'
   return undefined
 }

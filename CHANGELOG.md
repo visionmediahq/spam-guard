@@ -24,6 +24,12 @@ Site action needed: no. To block a sender, set `SPAM_BLOCK` on the app and resta
     apart.
   - A bad or refused entry is skipped with one warning naming its position, never its value.
   - `block` also accepts a single string, for plain-JS routes.
+- Gibberish rule (#21, rule 2): a field whose whole value is one random mixed-case word of 12 or
+  more letters (`hwcxfAXYrTLOWycHCCtig`) gets the new content flag `gibberish`, so `[misstänkt spam]`
+  in the subject. Logged as `accepted … flag=gibberish fields=…`, field names only. `SPAM_GIBBERISH=drop`
+  drops such posts with the fake success instead (`blocked kind=gibberish fields=…`). Routes that
+  prefix the subject for any `spam.flag` need no change; a route that checks flag values one by one
+  should add `'gibberish'`.
 - Includes 1.3.1.
 
 ## 1.3.1

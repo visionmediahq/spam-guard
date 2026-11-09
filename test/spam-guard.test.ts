@@ -11,7 +11,7 @@ const RECAPTCHA_ENV = {
   PUBLIC_RECAPTCHA_SITE_KEY: 'site',
   SITE_URL: 'https://kund.example',
 }
-const ALL_KEYS = ['SPAM_PROVIDER', 'ALTCHA_HMAC_SECRET', 'RECAPTCHA_SECRET_KEY', 'PUBLIC_RECAPTCHA_SITE_KEY', 'SITE_URL', 'RECAPTCHA_ALLOWED_HOSTS', 'SPAM_BLOCK']
+const ALL_KEYS = ['SPAM_PROVIDER', 'ALTCHA_HMAC_SECRET', 'RECAPTCHA_SECRET_KEY', 'PUBLIC_RECAPTCHA_SITE_KEY', 'SITE_URL', 'RECAPTCHA_ALLOWED_HOSTS', 'SPAM_BLOCK', 'SPAM_GIBBERISH']
 
 let warn: ReturnType<typeof vi.spyOn>
 let error: ReturnType<typeof vi.spyOn>
@@ -472,6 +472,40 @@ describe('sender blocklist', () => {
     google(GOOGLE_OK)
     expect((await g.checkSubmission({ email: 'spam@example.se', recaptcha_token: 't' }, req('1.2.3.4'))).reason).toBe('honeypot')
     expect(logLines()).toContain('[spam-guard] blocked kind=email provider=recaptcha')
+  })
+})
+
+describe('gibberish', () => {
+  const BOT = { name: 'hwcxfAXYrTLOWycHCCtig', message: 'dYKJudPbgHFwCvHxCXhmIrFW', email: 'el.iyam.a21.9@gmail.com' }
+
+  test('flagged and sent by default, logged with the field names only', async () => {
+    const { g, a } = await load(ALTCHA_ENV)
+    expect(await g.checkSubmission({ ...BOT, altcha: await payload(a) }, req('1.2.3.4'))).toEqual({ reason: 'ok', flag: 'gibberish' })
+    const lines = logLines()
+    expect(lines).toHaveLength(1) // one log line per decision
+    expect(lines[0]).toMatch(/^\[spam-guard\] accepted provider=altcha age_s=\d+ flag=gibberish fields=name,message$/)
+    expect(logLines().join('\n')).not.toMatch(/hwcxf|dYKJ/)
+  })
+
+  test('SPAM_GIBBERISH=drop drops it with the fake success instead', async () => {
+    const { g, a } = await load({ ...ALTCHA_ENV, SPAM_GIBBERISH: 'drop' })
+    expect(await g.checkSubmission({ ...BOT, altcha: await payload(a) }, req('1.2.3.4'))).toEqual({ reason: 'honeypot' })
+    expect(logLines()).toContain('[spam-guard] blocked kind=gibberish fields=name,message provider=altcha')
+    // A real post is untouched by the switch.
+    expect((await g.checkSubmission({ name: 'Anna', message: 'Hej', altcha: await payload(a) }, req('1.2.3.5'))).reason).toBe('ok')
+  })
+
+  test('any other SPAM_GIBBERISH value flags, with one warning', async () => {
+    const { g, a } = await load({ ...ALTCHA_ENV, SPAM_GIBBERISH: 'block' })
+    for (let i = 0; i < 2; i++) {
+      expect((await g.checkSubmission({ ...BOT, altcha: await payload(a) }, req(`10.1.0.${i}`))).flag).toBe('gibberish')
+    }
+    expect(logLines().filter((l) => l.includes('SPAM_GIBBERISH'))).toEqual(['[spam-guard] SPAM_GIBBERISH must be "drop" or unset: flagging'])
+  })
+
+  test('an unverified gibberish post still fails as usual', async () => {
+    const { g } = await load({ ...ALTCHA_ENV, SPAM_GIBBERISH: 'drop' })
+    expect((await g.checkSubmission({ ...BOT, altcha: 'junk' }, req('1.2.3.4'))).reason).toBe('failed')
   })
 })
 
