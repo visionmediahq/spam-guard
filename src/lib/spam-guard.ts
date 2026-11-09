@@ -16,7 +16,10 @@
 //    here; a post is counted after it passes the provider check.
 // 4. Provider — SPAM_PROVIDER=recaptcha (default, Google reCAPTCHA v3) or
 //    altcha (self-hosted proof-of-work, no third party).
-// 5. Content rules — never drop; they return a flag and the endpoint prefixes
+// 5. Sender blocklist — SPAM_BLOCK (and options.block): a verified post from a
+//    listed e-mail address, domain or phone number gets the fake success and is
+//    dropped. It still counts toward the rate limit.
+// 6. Content rules — never drop; they return a flag and the endpoint prefixes
 //    the e-mail subject with "[misstänkt spam] ".
 //
 // One log line per decision, never message content or a full IP.
@@ -40,8 +43,13 @@ export type Check = { reason: Reason; flag?: CheckFlag; retryAfterS?: number }
 export type CheckOptions = {
   /** reCAPTCHA action — must match the one the form used. Default 'contact'. */
   action?: string
-  /** Fields holding the free-text message, for the script rule. Default ['message']. */
+  /**
+   * Fields holding the free-text message, for the script rule. Default ['message'].
+   * The sender blocklist skips them, so a customer quoting a blocked address isn't dropped.
+   */
   messageFields?: string[]
+  /** Blocklist entries on top of SPAM_BLOCK, in the same form: 'email:a@b.se', 'email:@b.se', 'phone:070…'. */
+  block?: string[]
 }
 
 export const RATE_LIMITED_TEXT = 'Du har skickat flera meddelanden på kort tid. Vänta en stund och försök igen.'
@@ -279,6 +287,74 @@ function honeypotShape(value: string): { kind: string; len: number } {
   return { kind, len: v.length }
 }
 
+// ---- sender blocklist ----
+
+type Block = { emails: Set<string>; domains: string[]; phones: string[] }
+
+const EMAIL = /[^\s@<>()[\]{},;:"']+@[^\s@<>()[\]{},;:"']+\.[^\s@<>()[\]{},;:"']+/g
+const DOMAIN = /^[\p{L}\p{N}-]+(\.[\p{L}\p{N}-]+)+$/u
+
+/**
+ * Parse blocklist entries: `email:a@b.se` (exact), `email:@b.se` (the domain and its subdomains),
+ * `phone:+46 70 …` (any national or international form). Entries are separated by commas,
+ * semicolons or line breaks (a phone number has spaces). Bad entries are skipped and named by
+ * position, never by value.
+ */
+function parseBlock(entries: string[], source: string): Block {
+  const block: Block = { emails: new Set(), domains: [], phones: [] }
+  const skipped: number[] = []
+  entries.forEach((raw, i) => {
+    const colon = raw.indexOf(':')
+    const kind = raw.slice(0, colon).trim().toLowerCase()
+    const value = raw.slice(colon + 1).trim().normalize('NFKC').toLowerCase()
+    if (colon > 0 && kind === 'email' && value.startsWith('@') && DOMAIN.test(value.slice(1))) {
+      block.domains.push(value.slice(1))
+    } else if (colon > 0 && kind === 'email' && (value.match(EMAIL) ?? [])[0] === value) {
+      block.emails.add(value)
+    } else if (colon > 0 && kind === 'phone' && phoneNumbers(value).length === 1) {
+      block.phones.push(phoneNumbers(value)[0] ?? '')
+    } else {
+      skipped.push(i + 1)
+    }
+  })
+  if (skipped.length) {
+    warnOnce(`[spam-guard] ${source}: skipped entries ${skipped.join(', ')} (use email:address, email:@domain or phone:number)`)
+  }
+  return block
+}
+
+function splitEntries(value: string | undefined): string[] {
+  return (value ?? '').split(/[,;\n]+/).map((e) => e.trim()).filter(Boolean)
+}
+
+/** The blocklist entry a post matches, as its kind for the log, or null. */
+function blockedKind(fields: Record<string, unknown>, messageFields: string[], extra: string[] = []): string | null {
+  const fromEnv = parseBlock(splitEntries(env('SPAM_BLOCK')), 'SPAM_BLOCK')
+  const fromCode = parseBlock(extra.flatMap((e) => splitEntries(e)), 'checkSubmission block')
+  const emails = new Set([...fromEnv.emails, ...fromCode.emails])
+  const domains = [...fromEnv.domains, ...fromCode.domains]
+  const phones = [...fromEnv.phones, ...fromCode.phones]
+  if (!emails.size && !domains.length && !phones.length) return null
+
+  const skip: ReadonlySet<string> = new Set([...SPAM_FIELDS, ...messageFields])
+  const values = Object.entries(fields)
+    .filter(([key]) => !skip.has(key))
+    .flatMap(([, value]) => stringsOf(value))
+    .filter((s) => s.length <= MAX_AUTOFILL_CHARS) // a sender's address or number is never longer
+  for (const s of values) {
+    for (const address of s.normalize('NFKC').toLowerCase().match(EMAIL) ?? []) {
+      if (emails.has(address)) return 'email'
+      const domain = address.slice(address.lastIndexOf('@') + 1)
+      if (domains.some((d) => domain === d || domain.endsWith('.' + d))) return 'domain'
+    }
+    // The post's number may carry more in front (a foreign country code), never less: "123 45 67"
+    // alone is not the blocked "08-123 45 67".
+    const has = (p: string, b: string) => p === b || (b.length >= MIN_PHONE_SUFFIX_DIGITS && p.endsWith(b))
+    if (phones.length && phoneNumbers(s).some((p) => phones.some((b) => has(p, b)))) return 'phone'
+  }
+  return null
+}
+
 // ---- the check ----
 
 /**
@@ -359,6 +435,12 @@ export async function checkSubmission(
       return { reason: 'rate-limited', retryAfterS: wait }
     }
     submitLimiter.record(key)
+  }
+  // Sender blocklist: before the honeypot verdict, so a blocked sender's autofill can't send it.
+  const blocked = blockedKind(f, messageFields, options.block)
+  if (blocked) {
+    log('blocked', { kind: blocked, provider: p })
+    return { reason: 'honeypot' }
   }
   if (honeypot) {
     if (!looksAutofilled(f)) {
