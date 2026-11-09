@@ -16,10 +16,14 @@ Site action needed: no. To block a sender, set `SPAM_BLOCK` on the app and resta
     verdict, so a blocked sender's password manager can't get a post sent.
   - Free text is never searched, in any field, so a customer who mentions a blocked address or
     number is not dropped.
-  - E-mail ignores case and trailing punctuation. A domain covers its subdomains. Phone numbers
-    compare whole: `+46 70 …` = `0046 70 …` = `070-…`, `+1 555 …` = `001 555 …`; another or a
-    missing area code never matches. Two numbers in one field are split apart.
-  - A bad entry is skipped with one warning naming its position, never its value.
+  - E-mail ignores case, plus addressing, quotes, `mailto:`, zero-width spaces and trailing
+    punctuation. A domain covers its subdomains; a whole e-mail provider (`@gmail.com`) or public
+    suffix (`@co.uk`) is refused. Phone numbers compare whole: `+46 70 …` = `0046 70 …` = `070-…`,
+    `+1 555 …` = `001 555 …`; another area code never matches, and a number without `0`, `+` or
+    `00` in front never matches and is not a valid entry. Several numbers in one field are split
+    apart.
+  - A bad or refused entry is skipped with one warning naming its position, never its value.
+  - `block` also accepts a single string, for plain-JS routes.
 - Includes 1.3.1.
 
 ## 1.3.1
