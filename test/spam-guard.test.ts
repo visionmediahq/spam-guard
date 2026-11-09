@@ -11,7 +11,7 @@ const RECAPTCHA_ENV = {
   PUBLIC_RECAPTCHA_SITE_KEY: 'site',
   SITE_URL: 'https://kund.example',
 }
-const ALL_KEYS = ['SPAM_PROVIDER', 'ALTCHA_HMAC_SECRET', 'RECAPTCHA_SECRET_KEY', 'PUBLIC_RECAPTCHA_SITE_KEY', 'SITE_URL', 'RECAPTCHA_ALLOWED_HOSTS']
+const ALL_KEYS = ['SPAM_PROVIDER', 'ALTCHA_HMAC_SECRET', 'RECAPTCHA_SECRET_KEY', 'PUBLIC_RECAPTCHA_SITE_KEY', 'SITE_URL', 'RECAPTCHA_ALLOWED_HOSTS', 'SPAM_BLOCK']
 
 let warn: ReturnType<typeof vi.spyOn>
 let error: ReturnType<typeof vi.spyOn>
@@ -302,6 +302,176 @@ describe('rate limit', () => {
     for (let i = 0; i < 8; i++) {
       expect((await g.checkSubmission({ recaptcha_token: 't' })).reason).toBe('ok')
     }
+  })
+})
+
+describe('sender blocklist', () => {
+  const BLOCK = 'email:Spam@Example.se, email:@junk.example; phone:+46700000000\n'
+  const blocked = (e: Record<string, string> = {}) => load({ ...ALTCHA_ENV, SPAM_BLOCK: BLOCK, ...e })
+
+  test('an exact address is dropped with the fake success, logged without the value', async () => {
+    const { g, a } = await blocked()
+    const c = await g.checkSubmission({ name: 'X', email: ' spam@EXAMPLE.se ', message: 'Hej', altcha: await payload(a) }, req('1.2.3.4'))
+    expect(c).toEqual({ reason: 'honeypot' })
+    expect(logLines()).toContain('[spam-guard] blocked kind=email provider=altcha')
+    expect(logLines().join('\n')).not.toMatch(/spam@example|junk\.example|700000000/i)
+  })
+
+  test('@domain matches the domain and its subdomains, not a longer name ending the same way', async () => {
+    const { g, a } = await blocked()
+    for (const email of ['a@junk.example', 'b@mail.junk.example']) {
+      expect((await g.checkSubmission({ email, altcha: await payload(a) }, req('1.2.3.4'))).reason).toBe('honeypot')
+    }
+    expect(logLines()).toContain('[spam-guard] blocked kind=domain provider=altcha')
+    expect((await g.checkSubmission({ email: 'c@notjunk.example', altcha: await payload(a) }, req('1.2.3.5'))).reason).toBe('ok')
+  })
+
+  test('a phone number matches in any national or international form', async () => {
+    const { g, a } = await blocked()
+    for (const [i, phone] of ['070-000 00 00', '0046 70 000 00 00', '+46 (0)70 000 00 00', '0700000000 / 0701112233', '0701112233 0700000000',
+      '070–000 00 00', '070−000 00 00', '070-111 22 33, 070-000 00 00', '08-765 43 21; 0700000000'].entries()) {
+      expect((await g.checkSubmission({ phone, altcha: await payload(a) }, req(`10.0.0.${i}`))).reason).toBe('honeypot') // own IP each: 9 posts
+    }
+    expect(logLines()).toContain('[spam-guard] blocked kind=phone provider=altcha')
+  })
+
+  test('another area code or a longer number is someone else', async () => {
+    const { g, a } = await blocked({ SPAM_BLOCK: 'phone:08-123 45 67, phone:031-12 34 56' })
+    for (const [i, phone] of ['018-123 45 67', '070-812 34 567', '123 45 67', '0731-12 34 56', '+1 812 345 67'].entries()) {
+      expect((await g.checkSubmission({ phone, altcha: await payload(a) }, req(`10.0.1.${i}`))).reason).toBe('ok')
+    }
+  })
+
+  test('a number without 0, + or 00 in front never matches, and is not a valid entry', async () => {
+    const { g, a } = await blocked({ SPAM_BLOCK: 'phone:0123-456 78, phone:040-123 45 67, phone:123 45 67' })
+    // A Stockholm customer leaving out 08 is not the blocked Valdemarsvik number 0123-456 78.
+    expect((await g.checkSubmission({ phone: '123 456 78', altcha: await payload(a) }, req('10.0.2.1'))).reason).toBe('ok')
+    // A Finn writing the trunk 0 (+358 040 …) is not the blocked Malmö number 040-…
+    expect((await g.checkSubmission({ phone: '+358 040 123 4567', altcha: await payload(a) }, req('10.0.2.2'))).reason).toBe('ok')
+    expect(logLines()).toContain('[spam-guard] SPAM_BLOCK: skipped entries 3 (use email:address, email:@domain or phone:number)')
+  })
+
+  test('an area code written with a slash stays part of the number', async () => {
+    const { g, a } = await blocked({ SPAM_BLOCK: 'phone:08-123 45 67' })
+    expect((await g.checkSubmission({ phone: '08/123 45 67', altcha: await payload(a) }, req('1.2.3.4'))).reason).toBe('honeypot')
+  })
+
+  test('a whole e-mail provider or public suffix is refused as a domain entry', async () => {
+    const { g, a } = await blocked({ SPAM_BLOCK: 'email:@gmail.com, email:@Hotmail.se, email:@co.uk, email:@com.au, email:@junk.example' })
+    for (const [i, email] of ['anna@gmail.com', 'bo@hotmail.se', 'a@b.co.uk', 'c@d.com.au'].entries()) {
+      expect((await g.checkSubmission({ email, altcha: await payload(a) }, req(`10.0.3.${i}`))).reason).toBe('ok')
+    }
+    expect((await g.checkSubmission({ email: 'x@junk.example', altcha: await payload(a) }, req('10.0.3.9'))).reason).toBe('honeypot')
+    expect(logLines()).toContain('[spam-guard] SPAM_BLOCK: refused entries 1, 2, 3, 4 (a whole e-mail provider or public suffix: block the address instead)')
+  })
+
+  test('quotes, mailto:, zero-width spaces and plus addressing do not hide a listed address', async () => {
+    const { g, a } = await blocked()
+    for (const [i, email] of ['"spam@example.se"', 'mailto:spam@example.se', 'spam@example.se​', '<spam@example.se>', 'spam+offert@example.se'].entries()) {
+      expect((await g.checkSubmission({ email, altcha: await payload(a) }, req(`10.0.4.${i}`))).reason).toBe('honeypot')
+    }
+    expect((await g.checkSubmission({ email: 'spammer@example.se', altcha: await payload(a) }, req('10.0.4.9'))).reason).toBe('ok')
+  })
+
+  test('message fields are skipped even when their whole value is a listed address', async () => {
+    const { g, a } = await blocked()
+    expect((await g.checkSubmission({ message: 'spam@example.se', altcha: await payload(a) }, req('10.0.5.1'))).reason).toBe('ok')
+    expect((await g.checkSubmission({ meddelande: 'spam@example.se', altcha: await payload(a) }, req('10.0.5.2'))).reason).toBe('honeypot')
+    const opts = { messageFields: ['meddelande'] }
+    expect((await g.checkSubmission({ meddelande: 'spam@example.se', altcha: await payload(a) }, req('10.0.5.3'), opts)).reason).toBe('ok')
+  })
+
+  test('code entries: one string works like a list, and bad ones are named as from code', async () => {
+    const { g, a } = await load(ALTCHA_ENV)
+    const opts = { block: 'email:x@y.se, name:Bob' as unknown as string[] } // a JS route passing a string
+    expect((await g.checkSubmission({ email: 'x@y.se', altcha: await payload(a) }, req('10.0.6.1'), opts)).reason).toBe('honeypot')
+    expect(logLines()).toContain('[spam-guard] checkSubmission block: skipped entries 2 (use email:address, email:@domain or phone:number)')
+  })
+
+  test('a foreign number matches in + and 00 form', async () => {
+    const { g, a } = await blocked({ SPAM_BLOCK: 'phone:+1 (555) 010-0199' })
+    for (const phone of ['+15550100199', '001 555 010 0199']) {
+      expect((await g.checkSubmission({ phone, altcha: await payload(a) }, req('1.2.3.4'))).reason).toBe('honeypot')
+    }
+    expect((await g.checkSubmission({ phone: '555 010 0199', altcha: await payload(a) }, req('1.2.3.5'))).reason).toBe('ok')
+  })
+
+  test('trailing punctuation after an address does not hide it', async () => {
+    const { g, a } = await blocked()
+    for (const email of ['spam@example.se.', 'x@junk.example!']) {
+      expect((await g.checkSubmission({ email, altcha: await payload(a) }, req('1.2.3.4'))).reason).toBe('honeypot')
+    }
+  })
+
+  test('a blocked sender is dropped even when the honeypot looks autofilled', async () => {
+    const { g, a } = await blocked()
+    const c = await g.checkSubmission({ email: 'spam@example.se', hp_x7q2: 'spam@example.se', altcha: await payload(a) }, req('1.2.3.4'))
+    expect(c).toEqual({ reason: 'honeypot' })
+    expect(logLines()).toContain('[spam-guard] blocked kind=email provider=altcha')
+  })
+
+  test('any field whose value is an address or number counts, nested JSON and arrays too', async () => {
+    const { g, a } = await blocked()
+    expect((await g.checkSubmission({ contact: { mail: 'spam@example.se' }, altcha: await payload(a) }, req('1.2.3.4'))).reason).toBe('honeypot')
+    expect((await g.checkSubmission({ tel: ['070-000 00 00'], altcha: await payload(a) }, req('1.2.3.4'))).reason).toBe('honeypot')
+  })
+
+  test('an address or number inside free text is not looked at, whatever the field is called', async () => {
+    const { g, a } = await blocked()
+    const posts = [
+      { email: 'anna@kund.se', message: 'Vi fick spam från spam@example.se', altcha: '' },
+      { email: 'anna@kund.se', subject: 'Fråga om spam@example.se', altcha: '' },
+      { email: 'anna@kund.se', ovrigt: 'ring 070-000 00 00 efter 5', altcha: '' },
+    ]
+    for (const p of posts) {
+      p.altcha = await payload(a)
+      expect((await g.checkSubmission(p, req('1.2.3.6'))).reason).toBe('ok')
+    }
+  })
+
+  test('entries passed in code add to SPAM_BLOCK', async () => {
+    const { g, a } = await blocked()
+    const opts = { block: ['email:other@x.se'] }
+    expect((await g.checkSubmission({ email: 'other@x.se', altcha: await payload(a) }, req('1.2.3.4'), opts)).reason).toBe('honeypot')
+    expect((await g.checkSubmission({ email: 'spam@example.se', altcha: await payload(a) }, req('1.2.3.4'), opts)).reason).toBe('honeypot')
+  })
+
+  test('code entries work without SPAM_BLOCK, and an empty list blocks nothing', async () => {
+    const { g, a } = await load(ALTCHA_ENV)
+    expect((await g.checkSubmission({ email: 'spam@example.se', altcha: await payload(a) }, req('1.2.3.4'))).reason).toBe('ok')
+    const c = await g.checkSubmission({ email: 'spam@example.se', altcha: await payload(a) }, req('1.2.3.4'), { block: ['email:spam@example.se'] })
+    expect(c.reason).toBe('honeypot')
+  })
+
+  test('a bad entry is skipped with one warning naming its position, and the rest still apply', async () => {
+    const { g, a } = await blocked({ SPAM_BLOCK: 'name:Bob, email:, phone:123, email:spam@example.se' })
+    for (let i = 0; i < 2; i++) {
+      expect((await g.checkSubmission({ email: 'spam@example.se', altcha: await payload(a) }, req('1.2.3.4'))).reason).toBe('honeypot')
+    }
+    const warnings = logLines().filter((l) => l.includes('SPAM_BLOCK'))
+    expect(warnings).toEqual(['[spam-guard] SPAM_BLOCK: skipped entries 1, 2, 3 (use email:address, email:@domain or phone:number)'])
+    expect(warnings.join()).not.toContain('Bob')
+  })
+
+  test('a blocked post counts toward the rate limit', async () => {
+    const { g, a } = await blocked()
+    for (let i = 0; i < 5; i++) {
+      expect((await g.checkSubmission({ email: 'spam@example.se', altcha: await payload(a) }, req('1.2.3.4'))).reason).toBe('honeypot')
+    }
+    expect((await g.checkSubmission({ email: 'anna@kund.se', altcha: await payload(a) }, req('1.2.3.4'))).reason).toBe('rate-limited')
+  })
+
+  test('the provider still runs first: an unverified post from a blocked sender fails as usual', async () => {
+    const { g } = await blocked()
+    expect((await g.checkSubmission({ email: 'spam@example.se', altcha: 'junk' }, req('1.2.3.4'))).reason).toBe('failed')
+    expect(logLines().some((l) => l.includes('blocked'))).toBe(false)
+  })
+
+  test('reCAPTCHA sites are covered too', async () => {
+    const { g } = await load({ ...RECAPTCHA_ENV, SPAM_BLOCK: BLOCK })
+    google(GOOGLE_OK)
+    expect((await g.checkSubmission({ email: 'spam@example.se', recaptcha_token: 't' }, req('1.2.3.4'))).reason).toBe('honeypot')
+    expect(logLines()).toContain('[spam-guard] blocked kind=email provider=recaptcha')
   })
 })
 

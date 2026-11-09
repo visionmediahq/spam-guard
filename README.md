@@ -200,6 +200,51 @@ All read at runtime (`process.env`); no build variables.
 | `PUBLIC_RECAPTCHA_SITE_KEY`, `RECAPTCHA_SECRET_KEY` | reCAPTCHA v3 keys (recaptcha mode). |
 | `RECAPTCHA_ALLOWED_HOSTS` | Extra token hosts besides `SITE_URL`'s, comma-separated. |
 | `ALTCHA_HMAC_SECRET` | altcha mode: at least 32 characters, unique per app (`openssl rand -hex 32`), never shared between apps. |
+| `SPAM_BLOCK` | Optional sender blocklist, see [Blocking a sender](#blocking-a-sender). |
+
+## Blocking a sender
+
+Some spam passes every check: a person in a real browser solves the challenge and writes plain
+text. When it keeps coming from the same address or number, list it in `SPAM_BLOCK` on the
+Coolify app and restart the app (no rebuild):
+
+```
+SPAM_BLOCK=email:spam@example.se, email:@spamdomain.example, phone:070-000 00 00
+```
+
+- `email:address` matches that address, ignoring case and plus addressing (`spam@x.se` also
+  matches `spam+offert@x.se`).
+- `email:@domain` matches every address at that domain and its subdomains (`@spam.example`
+  matches `a@mail.spam.example`, not `a@notspam.example`). A whole e-mail provider (`@gmail.com`,
+  `@hotmail.se`, …) or a public suffix (`@co.uk`) is refused with a warning: one such entry would
+  drop every customer there, on every site sharing the list. Block the address instead.
+- `phone:number` matches the whole number in any form: `+46 70 …`, `0046 70 …` and `070-…` are
+  the same, and so are `+1 555 …` and `001 555 …`. Write it with its area code (`0`, `+` or `00`
+  first); an entry without one is skipped. Another area code is someone else (`08-123 45 67` does
+  not match `018-123 45 67`), and a number the customer wrote without its area code (`123 45 67`)
+  never matches anything.
+- Entries are separated by commas, semicolons or line breaks. A bad or refused entry is skipped
+  with one warning in the log that names its position, never its value.
+
+Only fields whose whole value is an e-mail address or phone numbers are looked at, in nested JSON
+too. Quotes, `<…>`, `mailto:`, zero-width spaces and trailing punctuation around an address are
+ignored, dashes of any kind count as `-`, and several numbers in one field are split apart (at
+commas, semicolons, or a space or slash before a new `0` or `+`, when every piece is a whole
+number). The message fields (`messageFields`, default `['message']`) are skipped entirely, and an
+address or number inside free text in any other field is never searched, so a customer who mentions
+a blocked address still gets through. A match is dropped with the same fake success as a honeypot
+hit, so the sender has no reason to switch address. It's logged as
+`blocked kind=email|domain|phone provider=…`, without the value, and counts toward the rate limit.
+
+Not matched, by design or as a known gap: a number with words around it (`Tel 070 …`,
+`070 … (mobil)`); a number written without `0`, `+` or `00` (`46 70 …`, `555 123 4567`); a
+foreign number written with its trunk 0 (`+44 020 …` is not `+44 20 …`); values over 254
+characters and JSON nested deeper than 3 levels, which a normal form never sends but a hand-made
+request can; and a domain entry in Unicode form against the same domain in punycode (`xn--…`).
+
+To share one list between sites, keep it in a Coolify team variable and point each app at it:
+`SPAM_BLOCK={{team.SPAM_BLOCK}}`. A site can also add entries in code:
+`checkSubmission(fields, request, { block: ['email:spam@example.se'] })`.
 
 ## Switching a site to ALTCHA
 

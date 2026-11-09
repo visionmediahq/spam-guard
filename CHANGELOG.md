@@ -2,6 +2,30 @@
 
 Each version says whether a site needs to change anything after upgrading.
 
+## 1.4.0
+
+Site action needed: no. To block a sender, set `SPAM_BLOCK` on the app and restart it (README,
+"Blocking a sender").
+
+- Sender blocklist (#20). `SPAM_BLOCK` (runtime variable) and the new `block` option of
+  `checkSubmission` take `email:address`, `email:@domain` and `phone:number` entries, separated by
+  commas, semicolons or line breaks. A verified post with a field whose whole value is a listed
+  address or number gets the fake success and is dropped, logged as
+  `blocked kind=email|domain|phone provider=…` without the value. It counts toward the rate limit.
+  - Checked after the provider, so an unverified post fails as before, and before the honeypot
+    verdict, so a blocked sender's password manager can't get a post sent.
+  - Free text is never searched, in any field, so a customer who mentions a blocked address or
+    number is not dropped.
+  - E-mail ignores case, plus addressing, quotes, `mailto:`, zero-width spaces and trailing
+    punctuation. A domain covers its subdomains; a whole e-mail provider (`@gmail.com`) or public
+    suffix (`@co.uk`) is refused. Phone numbers compare whole: `+46 70 …` = `0046 70 …` = `070-…`,
+    `+1 555 …` = `001 555 …`; another area code never matches, and a number without `0`, `+` or
+    `00` in front never matches and is not a valid entry. Several numbers in one field are split
+    apart.
+  - A bad or refused entry is skipped with one warning naming its position, never its value.
+  - `block` also accepts a single string, for plain-JS routes.
+- Includes 1.3.1.
+
 ## 1.3.1
 
 Site action needed: no. Upgrade to stop gibberish bot posts reaching clients as `[misstänkt spam]`.

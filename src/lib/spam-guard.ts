@@ -16,7 +16,10 @@
 //    here; a post is counted after it passes the provider check.
 // 4. Provider — SPAM_PROVIDER=recaptcha (default, Google reCAPTCHA v3) or
 //    altcha (self-hosted proof-of-work, no third party).
-// 5. Content rules — never drop; they return a flag and the endpoint prefixes
+// 5. Sender blocklist — SPAM_BLOCK (and options.block): a verified post from a
+//    listed e-mail address, domain or phone number gets the fake success and is
+//    dropped. It still counts toward the rate limit.
+// 6. Content rules — never drop; they return a flag and the endpoint prefixes
 //    the e-mail subject with "[misstänkt spam] ".
 //
 // One log line per decision, never message content or a full IP.
@@ -40,8 +43,13 @@ export type Check = { reason: Reason; flag?: CheckFlag; retryAfterS?: number }
 export type CheckOptions = {
   /** reCAPTCHA action — must match the one the form used. Default 'contact'. */
   action?: string
-  /** Fields holding the free-text message, for the script rule. Default ['message']. */
+  /**
+   * Fields holding the free-text message, for the script rule. Default ['message'].
+   * The sender blocklist skips them, so a customer quoting a blocked address isn't dropped.
+   */
   messageFields?: string[]
+  /** Blocklist entries on top of SPAM_BLOCK, in the same form: 'email:a@b.se', 'email:@b.se', 'phone:070…'. */
+  block?: string[]
 }
 
 export const RATE_LIMITED_TEXT = 'Du har skickat flera meddelanden på kort tid. Vänta en stund och försök igen.'
@@ -279,6 +287,165 @@ function honeypotShape(value: string): { kind: string; len: number } {
   return { kind, len: v.length }
 }
 
+// ---- sender blocklist ----
+
+type Block = { emails: Set<string>; domains: string[]; phones: Set<string> }
+
+// A whole field value that is one e-mail address (trailing punctuation is stripped first).
+const WHOLE_EMAIL = /^[^\s@<>()[\]{},;:"']+@[^\s@<>()[\]{},;:"']+\.[^\s@<>()[\]{},;:"']+$/
+const TRAILING_PUNCTUATION = /[.!?/,;:]+$/
+const DOMAIN = /^[\p{L}\p{N}-]+(\.[\p{L}\p{N}-]+)+$/u
+// A whole field value made of phone-number characters only: one or more numbers.
+const WHOLE_PHONE = /^[+\d\s().\-/]+$/
+
+// Zero-width characters that copy-paste leaves behind; NFKC keeps them.
+const ZERO_WIDTH = /[​-‍⁠﻿]/g
+
+/**
+ * A field value as one lower-case e-mail address, or null when it is anything else. Quotes,
+ * angle brackets, `mailto:`, zero-width characters and trailing punctuation are ignored.
+ */
+function wholeEmail(value: string): string | null {
+  const v = value
+    .normalize('NFKC')
+    .replace(ZERO_WIDTH, '')
+    .trim()
+    .toLowerCase()
+    .replace(/^mailto:/, '')
+    .replace(/^["'<]+|["'>]+$/g, '')
+    .replace(TRAILING_PUNCTUATION, '')
+  return WHOLE_EMAIL.test(v) ? v : null
+}
+
+/** "spam+offert@x.se" → "spam@x.se": the same mailbox (plus addressing). */
+function withoutTag(address: string): string {
+  return address.replace(/^([^+@]+)\+[^@]*@/, '$1@')
+}
+
+// Domains that are a whole e-mail provider or a public suffix: one entry would drop every
+// customer there, on every site sharing the list. Block the address instead.
+const FREEMAIL = new Set([
+  'gmail.com', 'googlemail.com', 'hotmail.com', 'hotmail.se', 'outlook.com', 'outlook.se', 'live.com',
+  'live.se', 'msn.com', 'yahoo.com', 'yahoo.se', 'icloud.com', 'me.com', 'mac.com', 'aol.com',
+  'protonmail.com', 'proton.me', 'gmx.com', 'gmx.de', 'mail.com', 'telia.com', 'telia.se', 'comhem.se',
+  'bredband.net', 'bredband2.com', 'spray.se', 'passagen.se', 'tele2.se', 'bahnhof.se', 'tutanota.com',
+])
+const PUBLIC_SECOND_LEVEL = /^(co|com|org|net|ac|gov|edu|ne|or|go|gv|nom|ltd|plc)\.[a-z]{2}$/
+
+function broadDomain(domain: string): boolean {
+  return FREEMAIL.has(domain) || PUBLIC_SECOND_LEVEL.test(domain) || !domain.includes('.')
+}
+
+/**
+ * One phone number as a comparable key: a Swedish number as its national number
+ * ("+46 70 …" = "0046 70 …" = "070 …" → "se:70…"), any other country's in international form
+ * ("+1 555 …" = "001 555 …" → "+1555…"). Compared exactly: another area code is someone else.
+ * A number without 0, + or 00 in front has no area code, so it can't be told apart: no key.
+ */
+function phoneKey(run: string): string | null {
+  const s = run.replace(/\(0\)/g, '').trim()
+  const digits = s.replace(/\D/g, '')
+  const intl = s.startsWith('+') ? digits : digits.startsWith('00') ? digits.slice(2) : null
+  if (intl !== null && !intl.startsWith('46')) return intl.length >= MIN_PHONE_DIGITS ? '+' + intl : null
+  if (intl === null && !digits.startsWith('0')) return null
+  const national = (intl === null ? digits : intl.slice(2)).replace(/^0/, '')
+  return national.length >= MIN_PHONE_DIGITS ? 'se:' + national : null
+}
+
+// Hyphen, non-breaking hyphen, figure dash, en dash, em dash, minus: autocorrect turns "-" into "–".
+const DASHES = /[‐-―−]/g
+
+/**
+ * The phone numbers in a value made only of number characters. Several numbers in one field
+ * ("070… , 08…", "070… / 08…", "070… 08…") are split apart; a number with words around it
+ * ("Tel 070…") is not looked at.
+ */
+function phoneKeys(value: string): string[] {
+  const parts = value.normalize('NFKC').replace(DASHES, '-').split(/[,;]/)
+  return parts.flatMap((part) => {
+    if (!WHOLE_PHONE.test(part.trim())) return []
+    // A space or slash before a new 0 or + may start another number. The split counts only when
+    // every piece is a whole number on its own: "08/123 45 67" and "+358 040 …" stay whole.
+    const runs = part.match(PHONE_RUN) ?? []
+    return runs.flatMap((run) => {
+      const pieces = run.split(/\s*\/\s*(?=[+0])|\s+(?=[+0])/).map(phoneKey)
+      const split = pieces.length > 1 && pieces.every((k) => k !== null) ? pieces : []
+      return [phoneKey(run), ...split]
+    })
+  }).filter((k): k is string => k !== null)
+}
+
+/**
+ * Parse blocklist entries: `email:a@b.se` (exact), `email:@b.se` (the domain and its subdomains),
+ * `phone:+46 70 …` (any national or international form). Entries are separated by commas,
+ * semicolons or line breaks (a phone number has spaces). Bad entries are skipped and named by
+ * position, never by value.
+ */
+function parseBlock(entries: string[], source: string): Block {
+  const block: Block = { emails: new Set(), domains: [], phones: new Set() }
+  const skipped: number[] = []
+  const refused: number[] = []
+  entries.forEach((raw, i) => {
+    const colon = raw.indexOf(':')
+    const kind = raw.slice(0, colon).trim().toLowerCase()
+    const value = raw.slice(colon + 1).trim().normalize('NFKC').replace(DASHES, '-').toLowerCase()
+    const phone = WHOLE_PHONE.test(value) && (value.match(PHONE_RUN) ?? []).length === 1 ? phoneKey(value) : null
+    if (colon > 0 && kind === 'email' && value.startsWith('@') && DOMAIN.test(value.slice(1))) {
+      if (broadDomain(value.slice(1))) refused.push(i + 1)
+      else block.domains.push(value.slice(1))
+    } else if (colon > 0 && kind === 'email' && wholeEmail(value) === value) {
+      block.emails.add(withoutTag(value))
+    } else if (colon > 0 && kind === 'phone' && phone) {
+      block.phones.add(phone)
+    } else {
+      skipped.push(i + 1)
+    }
+  })
+  if (skipped.length) {
+    warnOnce(`[spam-guard] ${source}: skipped entries ${skipped.join(', ')} (use email:address, email:@domain or phone:number)`)
+  }
+  if (refused.length) {
+    warnOnce(`[spam-guard] ${source}: refused entries ${refused.join(', ')} (a whole e-mail provider or public suffix: block the address instead)`)
+  }
+  return block
+}
+
+function splitEntries(value: string | undefined): string[] {
+  return (value ?? '').split(/[,;\n]+/).map((e) => e.trim()).filter(Boolean)
+}
+
+/** The blocklist entry a post matches, as its kind for the log, or null. */
+function blockedKind(fields: Record<string, unknown>, messageFields: string[], extra?: unknown): string | null {
+  // `block` is typed string[], but a plain-JS route may pass one string: treat it the same.
+  const extraList = typeof extra === 'string' ? [extra] : Array.isArray(extra) ? extra.filter((e) => typeof e === 'string') : []
+  const fromEnv = parseBlock(splitEntries(env('SPAM_BLOCK')), 'SPAM_BLOCK')
+  const fromCode = parseBlock(extraList.flatMap((e) => splitEntries(e)), 'checkSubmission block')
+  const emails = new Set([...fromEnv.emails, ...fromCode.emails])
+  const domains = [...fromEnv.domains, ...fromCode.domains]
+  const phones = new Set([...fromEnv.phones, ...fromCode.phones])
+  if (!emails.size && !domains.length && !phones.size) return null
+
+  // Only values that are an address or a number as a whole: the sender's own contact fields.
+  // Free text in any field (a message, a subject, a note) is never searched, so a customer who
+  // mentions a blocked address or number is not dropped.
+  const skip: ReadonlySet<string> = new Set([...SPAM_FIELDS, ...messageFields])
+  const values = Object.entries(fields)
+    .filter(([key]) => !skip.has(key))
+    .flatMap(([, value]) => stringsOf(value))
+    .filter((s) => s.length <= MAX_AUTOFILL_CHARS) // a sender's address or number is never longer
+  for (const s of values) {
+    const address = wholeEmail(s)
+    if (address) {
+      if (emails.has(address) || emails.has(withoutTag(address))) return 'email'
+      const domain = address.slice(address.lastIndexOf('@') + 1)
+      if (domains.some((d) => domain === d || domain.endsWith('.' + d))) return 'domain'
+    } else if (phones.size && phoneKeys(s).some((k) => phones.has(k))) {
+      return 'phone'
+    }
+  }
+  return null
+}
+
 // ---- the check ----
 
 /**
@@ -359,6 +526,12 @@ export async function checkSubmission(
       return { reason: 'rate-limited', retryAfterS: wait }
     }
     submitLimiter.record(key)
+  }
+  // Sender blocklist: before the honeypot verdict, so a blocked sender's autofill can't send it.
+  const blocked = blockedKind(f, messageFields, options.block)
+  if (blocked) {
+    log('blocked', { kind: blocked, provider: p })
+    return { reason: 'honeypot' }
   }
   if (honeypot) {
     if (!looksAutofilled(f)) {
