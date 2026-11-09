@@ -319,14 +319,22 @@ function phoneKey(run: string): string | null {
   return national.length >= MIN_PHONE_DIGITS ? 'se:' + national : null
 }
 
-/** The phone numbers in a value made only of number characters; two in one field are split apart. */
+// Hyphen, non-breaking hyphen, figure dash, en dash, em dash, minus: autocorrect turns "-" into "–".
+const DASHES = /[‐-―−]/g
+
+/**
+ * The phone numbers in a value made only of number characters. Several numbers in one field
+ * ("070… , 08…", "070… / 08…", "070… 08…") are split apart; a number with words around it
+ * ("Tel 070…") is not looked at.
+ */
 function phoneKeys(value: string): string[] {
-  const v = value.normalize('NFKC')
-  if (!WHOLE_PHONE.test(v.trim())) return []
-  const runs = v.match(PHONE_RUN) ?? []
-  // "0700000000 0701112233" or "070… / 08…" is one run: also try the pieces that start a new number.
-  const pieces = runs.flatMap((run) => [run, ...run.split(/\s*\/\s*|\s+(?=[+0])/)])
-  return pieces.map(phoneKey).filter((k): k is string => k !== null)
+  const parts = value.normalize('NFKC').replace(DASHES, '-').split(/[,;]/)
+  return parts.flatMap((part) => {
+    if (!WHOLE_PHONE.test(part.trim())) return []
+    // A space or slash before a new 0 or + starts another number; "08/123 45 67" stays whole.
+    const runs = part.match(PHONE_RUN) ?? []
+    return runs.flatMap((run) => [run, ...run.split(/\s*\/\s*(?=[+0])|\s+(?=[+0])/)])
+  }).map(phoneKey).filter((k): k is string => k !== null)
 }
 
 /**

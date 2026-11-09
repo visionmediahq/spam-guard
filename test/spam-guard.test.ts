@@ -328,8 +328,9 @@ describe('sender blocklist', () => {
 
   test('a phone number matches in any national or international form', async () => {
     const { g, a } = await blocked()
-    for (const phone of ['070-000 00 00', '0046 70 000 00 00', '+46 (0)70 000 00 00', '0700000000 / 0701112233', '0701112233 0700000000']) {
-      expect((await g.checkSubmission({ phone, altcha: await payload(a) }, req('1.2.3.4'))).reason).toBe('honeypot')
+    for (const [i, phone] of ['070-000 00 00', '0046 70 000 00 00', '+46 (0)70 000 00 00', '0700000000 / 0701112233', '0701112233 0700000000',
+      '070–000 00 00', '070−000 00 00', '070-111 22 33, 070-000 00 00', '08-765 43 21; 0700000000'].entries()) {
+      expect((await g.checkSubmission({ phone, altcha: await payload(a) }, req(`10.0.0.${i}`))).reason).toBe('honeypot') // own IP each: 9 posts
     }
     expect(logLines()).toContain('[spam-guard] blocked kind=phone provider=altcha')
   })
@@ -339,6 +340,11 @@ describe('sender blocklist', () => {
     for (const phone of ['018-123 45 67', '070-812 34 567', '123 45 67', '0731-12 34 56', '+1 812 345 67']) {
       expect((await g.checkSubmission({ phone, altcha: await payload(a) }, req('1.2.3.4'))).reason).toBe('ok')
     }
+  })
+
+  test('an area code written with a slash stays part of the number', async () => {
+    const { g, a } = await blocked({ SPAM_BLOCK: 'phone:123 45 67' })
+    expect((await g.checkSubmission({ phone: '08/123 45 67', altcha: await payload(a) }, req('1.2.3.4'))).reason).toBe('ok')
   })
 
   test('a foreign number matches in + and 00 form', async () => {

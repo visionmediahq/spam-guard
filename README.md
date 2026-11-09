@@ -222,8 +222,11 @@ SPAM_BLOCK=email:spam@example.se, email:@spamdomain.example, phone:070-000 00 00
   warning in the log that names its position, never its value.
 
 Only fields whose whole value is an e-mail address or phone numbers are looked at (trailing
-punctuation is ignored, and two numbers in one field are split apart), in any field and in nested
-JSON. An address or number inside free text, in the message or any other field, is never searched,
+punctuation is ignored, dashes of any kind count as `-`, and several numbers in one field are split
+apart at commas, semicolons, or a space or slash before a new `0` or `+`), in any field and in
+nested JSON. A number with words around it (`Tel 070 …`, `070 … (mobil)`) is not matched, and a
+foreign number written without `+` or `00` (`555 123 4567`) reads as Swedish, so it doesn't match a
+`phone:+1 555 …` entry. An address or number inside free text, in the message or any other field, is never searched,
 so a customer who mentions a blocked address still gets through. A match is dropped with the same
 fake success as a honeypot hit, so the sender has no reason to switch address. It's logged as
 `blocked kind=email|domain|phone provider=…`, without the value, and counts toward the rate limit.
