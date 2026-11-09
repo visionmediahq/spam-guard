@@ -111,7 +111,15 @@ describe('gibberish', () => {
     expect(gibberishFields({ altcha: 'hwcxfAXYrTLOWycHCCtig', hp_x7q2: 'OTMnsXReosGoBENrOaR', n: 7 })).toEqual([])
   })
 
-  test('a longer rule wins: length and links come first', () => {
+  test('the other content rules come first: length and links win over gibberish', () => {
     expect(contentFlag({ name: 'hwcxfAXYrTLOWycHCCtig', message: 'x'.repeat(5001) }, MSG)).toBe('length')
+    expect(contentFlag({ name: 'hwcxfAXYrTLOWycHCCtig', message: 'https://a.x https://b.x https://c.x' }, MSG)).toBe('links')
+  })
+
+  test('boundaries: 12 letters and 5 case switches', () => {
+    expect(gibberishFields({ a: 'abCDefGHijkL' })).toEqual(['a']) // 12 letters, 5 switches
+    expect(gibberishFields({ a: 'abCDefGHijkl' })).toEqual([]) // 4 switches
+    expect(gibberishFields({ a: 'abCDefGHijL' })).toEqual([]) // 11 letters
+    expect(gibberishFields({ a: 'aBcDeFgHiJkLmNoP' })).toEqual([]) // no run of capitals inside
   })
 })

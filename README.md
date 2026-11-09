@@ -259,12 +259,25 @@ punctuation), at least 12 letters long, switches between capitals and small lett
 times, and has two or more capitals in a row inside the word (`fAXYr`). CamelCase
 (`MacBookProMax`), names, ordinary words, all-caps text and codes with digits don't count.
 
-By default such a post is sent with `flag: 'gibberish'`, so `[misstänkt spam]` in the subject,
-and logged as `accepted … flag=gibberish fields=name,message`: the names of the fields that tripped it,
-never their values. Bots trip every field, while a real visitor's odd entry would trip one, so these
-lines are the evidence for switching to dropping. With `SPAM_GIBBERISH=drop` on the app (or
-`{{team.SPAM_GIBBERISH}}` for every site), such posts get the fake success instead and are logged as
-`blocked kind=gibberish fields=… provider=…`. Any other value flags, with one warning in the log.
+By default such a post is sent with `flag: 'gibberish'`, so `[misstänkt spam]` in the subject. The
+log line names the fields that tripped it, never their values:
+`accepted … flag=gibberish fields=name,message`. The `fields=` part is there whatever flag wins
+(`flag=links fields=…`), and on `honeypot-overridden` lines too. A field name that isn't a plain
+form name shows as `?`. Bots trip every field, while a real visitor's odd entry would trip one, so
+these lines are the evidence for switching to dropping.
+
+With `SPAM_GIBBERISH=drop` on the app, such posts get the fake success instead and are logged as
+`blocked kind=gibberish fields=… provider=…`. Under `drop` the rule is checked right after the
+sender blocklist: before the honeypot verdict and whatever other content rule matches, so a bot
+that copies its gibberish into the honeypot or adds links is still dropped. Any other value flags,
+with one warning in the log.
+
+Before dropping, collect a few weeks of `fields=` lines from many sites: every hit should name all
+of a form's text fields together. Look at any one-field hit with the site owner. Then turn on
+`drop` site by site before using a shared `{{team.SPAM_GIBBERISH}}`. Known misses and false hits:
+the rule misses all-lowercase or all-caps tokens, tokens with a digit or a dot, two-word values,
+strict alternation (`aBcDeF…`) and tokens under 12 letters; it would flag a whole field such as
+`MyHomeABInvest`, `xXDarkLordXx` or `hEJjAGvILLhAoFFERT` (caps lock, no spaces).
 
 ## Switching a site to ALTCHA
 

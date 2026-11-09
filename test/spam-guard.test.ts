@@ -503,6 +503,48 @@ describe('gibberish', () => {
     expect(logLines().filter((l) => l.includes('SPAM_GIBBERISH'))).toEqual(['[spam-guard] SPAM_GIBBERISH must be "drop" or unset: flagging'])
   })
 
+  test('drop mode also catches a bot that copies its gibberish into the honeypot', async () => {
+    const { g, a } = await load({ ...ALTCHA_ENV, SPAM_GIBBERISH: 'drop' })
+    const c = await g.checkSubmission({ ...BOT, hp_x7q2: BOT.name, altcha: await payload(a) }, req('1.2.3.4'))
+    expect(c).toEqual({ reason: 'honeypot' })
+    expect(logLines()).toContain('[spam-guard] blocked kind=gibberish fields=name,message provider=altcha')
+  })
+
+  test('drop mode drops gibberish even when another rule (links) matches first', async () => {
+    const { g, a } = await load({ ...ALTCHA_ENV, SPAM_GIBBERISH: 'drop' })
+    const post = { ...BOT, company: 'https://a.x https://b.x https://c.x', altcha: await payload(a) }
+    expect(await g.checkSubmission(post, req('1.2.3.4'))).toEqual({ reason: 'honeypot' })
+  })
+
+  test('flag mode: when another rule wins, the log still names the gibberish fields', async () => {
+    const { g, a } = await load(ALTCHA_ENV)
+    const post = { ...BOT, company: 'https://a.x https://b.x https://c.x', altcha: await payload(a) }
+    expect(await g.checkSubmission(post, req('1.2.3.4'))).toEqual({ reason: 'ok', flag: 'links' })
+    expect(logLines()[0]).toMatch(/^\[spam-guard\] accepted provider=altcha age_s=\d+ flag=links fields=name,message$/)
+  })
+
+  test('only plain field names reach the log', async () => {
+    const { g, a } = await load(ALTCHA_ENV)
+    const evil = 'Anna anna@x.se 0701234567\n[spam-guard] accepted provider=altcha'
+    await g.checkSubmission({ [evil]: BOT.name, 'kontakt[namn]': BOT.message, altcha: await payload(a) }, req('1.2.3.4'))
+    const lines = logLines()
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toMatch(/ fields=\?,kontakt\[namn\]$/)
+    expect(lines[0]).not.toMatch(/anna@x|0701234567/)
+  })
+
+  test('flag mode: a gibberish bot copied into the honeypot is sent as overridden, with its fields logged', async () => {
+    const { g, a } = await load(ALTCHA_ENV)
+    expect(await g.checkSubmission({ ...BOT, hp_x7q2: BOT.name, altcha: await payload(a) }, req('1.2.3.4'))).toEqual({ reason: 'ok', flag: 'honeypot' })
+    expect(logLines()).toContain('[spam-guard] honeypot-overridden provider=altcha fields=name,message')
+  })
+
+  test('nothing changes for a normal post: no fields= in the accepted line', async () => {
+    const { g, a } = await load(ALTCHA_ENV)
+    expect(await g.checkSubmission({ name: 'Anna Berg', message: 'Hej!', altcha: await payload(a) }, req('1.2.3.4'))).toEqual({ reason: 'ok' })
+    expect(logLines()[0]).toMatch(/^\[spam-guard\] accepted provider=altcha age_s=\d+$/)
+  })
+
   test('an unverified gibberish post still fails as usual', async () => {
     const { g } = await load({ ...ALTCHA_ENV, SPAM_GIBBERISH: 'drop' })
     expect((await g.checkSubmission({ ...BOT, altcha: 'junk' }, req('1.2.3.4'))).reason).toBe('failed')
