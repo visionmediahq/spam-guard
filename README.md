@@ -200,6 +200,36 @@ All read at runtime (`process.env`); no build variables.
 | `PUBLIC_RECAPTCHA_SITE_KEY`, `RECAPTCHA_SECRET_KEY` | reCAPTCHA v3 keys (recaptcha mode). |
 | `RECAPTCHA_ALLOWED_HOSTS` | Extra token hosts besides `SITE_URL`'s, comma-separated. |
 | `ALTCHA_HMAC_SECRET` | altcha mode: at least 32 characters, unique per app (`openssl rand -hex 32`), never shared between apps. |
+| `SPAM_BLOCK` | Optional sender blocklist, see [Blocking a sender](#blocking-a-sender). |
+
+## Blocking a sender
+
+Some spam passes every check: a person in a real browser solves the challenge and writes plain
+text. When it keeps coming from the same address or number, list it in `SPAM_BLOCK` on the
+Coolify app and restart the app (no rebuild):
+
+```
+SPAM_BLOCK=email:spam@example.se, email:@spamdomain.example, phone:070-000 00 00
+```
+
+- `email:address` matches that address, ignoring case.
+- `email:@domain` matches every address at that domain and its subdomains (`@spam.example`
+  matches `a@mail.spam.example`, not `a@notspam.example`).
+- `phone:number` matches the number in any form: `+46 70 …`, `0046 70 …` and `070-…` are the same.
+  A post's number may have a country code in front of it, but a shorter number is never a match
+  (`123 45 67` is not `08-123 45 67`).
+- Entries are separated by commas, semicolons or line breaks. A bad entry is skipped with one
+  warning in the log that names its position, never its value.
+
+Every field of the post is searched, nested JSON included, except the message fields
+(`messageFields`, default `['message']`), so a customer who quotes a blocked address in their message
+still gets through. A match is dropped with the same fake success as a honeypot hit, so the sender
+has no reason to switch address. It's logged as `blocked kind=email|domain|phone provider=…`,
+without the value, and counts toward the rate limit.
+
+To share one list between sites, keep it in a Coolify team variable and point each app at it:
+`SPAM_BLOCK={{team.SPAM_BLOCK}}`. A site can also add entries in code:
+`checkSubmission(fields, request, { block: ['email:spam@example.se'] })`.
 
 ## Switching a site to ALTCHA
 
