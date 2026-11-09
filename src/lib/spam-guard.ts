@@ -21,6 +21,8 @@
 //    dropped. It still counts toward the rate limit.
 // 6. Content rules — never drop; they return a flag and the endpoint prefixes
 //    the e-mail subject with "[misstänkt spam] ".
+//    Gibberish alone can be switched to dropping with SPAM_GIBBERISH=drop; it is then
+//    checked right after the blocklist, before the honeypot verdict.
 //
 // One log line per decision, never message content or a full IP.
 
@@ -28,7 +30,7 @@ import { BlockList, isIP, isIPv4, isIPv6 } from 'node:net'
 import { createHash, randomBytes } from 'node:crypto'
 import { env } from './runtime-env'
 import { altchaConfigured, verifyAltcha } from './spam-altcha'
-import { contentFlag, type Flag } from './spam-content'
+import { contentFlag, gibberishFields, type Flag } from './spam-content'
 import { ALTCHA_FIELD, HONEYPOT_FIELD, RECAPTCHA_TOKEN_FIELD, SPAM_FIELDS } from './spam-fields'
 import { submitLimiter } from './spam-ratelimit'
 import { missingRecaptchaKeys, verifyRecaptchaToken, type Verdict } from './spam-recaptcha'
@@ -446,6 +448,15 @@ function blockedKind(fields: Record<string, unknown>, messageFields: string[], e
   return null
 }
 
+/**
+ * A field name as it may appear in the log. Names come from the request body, so anything but a
+ * plain form name (letters, digits, _ - . [ ], up to 40 characters) is logged as '?': a crafted
+ * name can't carry free text or a forged log line.
+ */
+function logSafeName(name: string): string {
+  return /^[\p{L}\p{N}_.[\]-]{1,40}$/u.test(name) ? name : '?'
+}
+
 // ---- the check ----
 
 /**
@@ -533,17 +544,30 @@ export async function checkSubmission(
     log('blocked', { kind: blocked, provider: p })
     return { reason: 'honeypot' }
   }
+  // Gibberish, the field names only and never values: how many fields a post fills with it
+  // tells bots (every field) from a real visitor's odd entry (one). Content rules need the
+  // request, as below. Under SPAM_GIBBERISH=drop it is checked here, before the honeypot verdict
+  // and whatever other content rule matches, so neither a copied honeypot nor added links save it.
+  const gibberish = request ? gibberishFields(f).map(logSafeName).join(',') || undefined : undefined
+  if (gibberish) {
+    const mode = env('SPAM_GIBBERISH')
+    if (mode === 'drop') {
+      log('blocked', { kind: 'gibberish', fields: gibberish, provider: p })
+      return { reason: 'honeypot' }
+    }
+    if (mode) warnOnce('[spam-guard] SPAM_GIBBERISH must be "drop" or unset: flagging')
+  }
   if (honeypot) {
     if (!looksAutofilled(f)) {
       log('honeypot', { token: 'yes', match: 'no', ...honeypotShape(String(f[HONEYPOT_FIELD])), provider: p })
       return { reason: 'honeypot' }
     }
-    log('honeypot-overridden', { provider: p })
+    log('honeypot-overridden', { provider: p, fields: gibberish })
     return { reason: 'ok', flag: 'honeypot' }
   }
   const flag = request ? contentFlag(f, messageFields) : undefined
 
-  if (p === 'altcha' || flag) log('accepted', { provider: p, age_s: verdict.ageS, flag })
+  if (p === 'altcha' || flag) log('accepted', { provider: p, age_s: verdict.ageS, flag, fields: gibberish })
   return flag ? { reason: 'ok', flag } : { reason: 'ok' }
 }
 

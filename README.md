@@ -16,7 +16,8 @@ Spam protection for the forms on Vision Media's Astro sites.
   Autofill of something the form doesn't ask for (a company, a street address) is dropped too, as
   before 1.3.0; the `data-*` opt-outs on `HoneypotField` keep most password managers out of the field.
 - 5 verified posts per client per 10 minutes. Content rules (many links, very long fields, mostly
-  non-Latin text) never drop a message; they only flag it.
+  non-Latin text, gibberish) never drop a message; they only flag it. Gibberish can be switched to
+  dropping with `SPAM_GIBBERISH=drop` (see [Gibberish](#gibberish)).
 - A browser post without JavaScript gets a 303 back to the form with `#skickat`, `#fel` or `#vanta`,
   shown by `<FormStatus />`.
 - Swedish texts by default, English with `lang="en"`.
@@ -201,6 +202,7 @@ All read at runtime (`process.env`); no build variables.
 | `RECAPTCHA_ALLOWED_HOSTS` | Extra token hosts besides `SITE_URL`'s, comma-separated. |
 | `ALTCHA_HMAC_SECRET` | altcha mode: at least 32 characters, unique per app (`openssl rand -hex 32`), never shared between apps. |
 | `SPAM_BLOCK` | Optional sender blocklist, see [Blocking a sender](#blocking-a-sender). |
+| `SPAM_GIBBERISH` | Unset: gibberish posts are flagged. `drop`: dropped with the fake success. See [Gibberish](#gibberish). |
 
 ## Blocking a sender
 
@@ -245,6 +247,37 @@ request can; and a domain entry in Unicode form against the same domain in punyc
 To share one list between sites, keep it in a Coolify team variable and point each app at it:
 `SPAM_BLOCK={{team.SPAM_BLOCK}}`. A site can also add entries in code:
 `checkSubmission(fields, request, { block: ['email:spam@example.se'] })`.
+
+## Gibberish
+
+Bots that solve the challenge fill every field with one random mixed-case word
+(`hwcxfAXYrTLOWycHCCtig`, #21). Since 1.3.1 these are dropped when they also fill the honeypot.
+The gibberish rule recognises them by their content too, in case they stop.
+
+A field counts as gibberish when its whole value is one word of letters only (no digits, spaces or
+punctuation), at least 12 letters long, switches between capitals and small letters at least 5
+times, and has two or more capitals in a row inside the word (`fAXYr`). CamelCase
+(`MacBookProMax`), names, ordinary words, all-caps text and codes with digits don't count.
+
+By default such a post is sent with `flag: 'gibberish'`, so `[misstänkt spam]` in the subject. The
+log line names the fields that tripped it, never their values:
+`accepted … flag=gibberish fields=name,message`. The `fields=` part is there whatever flag wins
+(`flag=links fields=…`), and on `honeypot-overridden` lines too. A field name that isn't a plain
+form name shows as `?`. Bots trip every field, while a real visitor's odd entry would trip one, so
+these lines are the evidence for switching to dropping.
+
+With `SPAM_GIBBERISH=drop` on the app, such posts get the fake success instead and are logged as
+`blocked kind=gibberish fields=… provider=…`. Under `drop` the rule is checked right after the
+sender blocklist: before the honeypot verdict and whatever other content rule matches, so a bot
+that copies its gibberish into the honeypot or adds links is still dropped. Any other value flags,
+with one warning in the log.
+
+Before dropping, collect a few weeks of `fields=` lines from many sites: every hit should name all
+of a form's text fields together. Look at any one-field hit with the site owner. Then turn on
+`drop` site by site before using a shared `{{team.SPAM_GIBBERISH}}`. Known misses and false hits:
+the rule misses all-lowercase or all-caps tokens, tokens with a digit or a dot, two-word values,
+strict alternation (`aBcDeF…`) and tokens under 12 letters; it would flag a whole field such as
+`MyHomeABInvest`, `xXDarkLordXx` or `hEJjAGvILLhAoFFERT` (caps lock, no spaces).
 
 ## Switching a site to ALTCHA
 
