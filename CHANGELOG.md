@@ -2,6 +2,18 @@
 
 Each version says whether a site needs to change anything after upgrading.
 
+## 1.4.1
+
+Site action needed: no. To use a shared list, give the app `SPAM_BLOCK_SHARED={{team.SPAM_BLOCK}}`
+and restart it (README, "One list for every site").
+
+- `SPAM_BLOCK_SHARED`: a second blocklist variable, same entries as `SPAM_BLOCK`, for one list kept
+  in a Coolify team variable and shared by every site. It adds to the site's own `SPAM_BLOCK` and
+  the `block` option; warnings name the variable a bad entry is in.
+- The blocklist variables are parsed once per value instead of on every post.
+- README: the size limit. An environment variable over 128 KB stops the container from starting;
+  keep a shared list under 100 KB (about 2,500 address entries of 40 bytes).
+
 ## 1.4.0
 
 Site action needed: no. To block a sender, set `SPAM_BLOCK` on the app and restart it (README,

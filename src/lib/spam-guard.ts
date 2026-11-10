@@ -16,7 +16,7 @@
 //    here; a post is counted after it passes the provider check.
 // 4. Provider — SPAM_PROVIDER=recaptcha (default, Google reCAPTCHA v3) or
 //    altcha (self-hosted proof-of-work, no third party).
-// 5. Sender blocklist — SPAM_BLOCK (and options.block): a verified post from a
+// 5. Sender blocklist — SPAM_BLOCK, SPAM_BLOCK_SHARED (and options.block): a verified post from a
 //    listed e-mail address, domain or phone number gets the fake success and is
 //    dropped. It still counts toward the rate limit.
 // 6. Content rules — never drop; they return a flag and the endpoint prefixes
@@ -412,6 +412,18 @@ function parseBlock(entries: string[], source: string): Block {
   return block
 }
 
+// A shared list can hold thousands of entries: parse each variable once per value, not per post.
+const parsedBlocks = new Map<string, { value: string; block: Block }>()
+
+function cachedBlock(value: string | undefined, source: string): Block {
+  const v = value ?? ''
+  const hit = parsedBlocks.get(source)
+  if (hit && hit.value === v) return hit.block
+  const block = parseBlock(splitEntries(v), source)
+  parsedBlocks.set(source, { value: v, block })
+  return block
+}
+
 function splitEntries(value: string | undefined): string[] {
   return (value ?? '').split(/[,;\n]+/).map((e) => e.trim()).filter(Boolean)
 }
@@ -420,11 +432,14 @@ function splitEntries(value: string | undefined): string[] {
 function blockedKind(fields: Record<string, unknown>, messageFields: string[], extra?: unknown): string | null {
   // `block` is typed string[], but a plain-JS route may pass one string: treat it the same.
   const extraList = typeof extra === 'string' ? [extra] : Array.isArray(extra) ? extra.filter((e) => typeof e === 'string') : []
-  const fromEnv = parseBlock(splitEntries(env('SPAM_BLOCK')), 'SPAM_BLOCK')
-  const fromCode = parseBlock(extraList.flatMap((e) => splitEntries(e)), 'checkSubmission block')
-  const emails = new Set([...fromEnv.emails, ...fromCode.emails])
-  const domains = [...fromEnv.domains, ...fromCode.domains]
-  const phones = new Set([...fromEnv.phones, ...fromCode.phones])
+  const lists = [
+    cachedBlock(env('SPAM_BLOCK'), 'SPAM_BLOCK'),
+    cachedBlock(env('SPAM_BLOCK_SHARED'), 'SPAM_BLOCK_SHARED'),
+    parseBlock(extraList.flatMap((e) => splitEntries(e)), 'checkSubmission block'),
+  ]
+  const emails = new Set(lists.flatMap((b) => [...b.emails]))
+  const domains = lists.flatMap((b) => b.domains)
+  const phones = new Set(lists.flatMap((b) => [...b.phones]))
   if (!emails.size && !domains.length && !phones.size) return null
 
   // Only values that are an address or a number as a whole: the sender's own contact fields.
