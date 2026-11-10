@@ -259,10 +259,11 @@ entries stay in its `SPAM_BLOCK`.
   site keeps the list it started with.
 - Every entry drops that sender on every site, so list whole addresses and numbers. A domain
   entry belongs in the shared list only when nobody at that domain could be a customer.
-- **Size limit: keep the list under 100 KB, about 2,500 entries.** Linux refuses an environment
+- **Size limit: keep the list under 100 KB.** At about 40 bytes per address entry that is about
+  2,500 entries; long addresses fit fewer, phone numbers more. Linux refuses an environment
   variable over 128 KB: the container does not start at all, on every app that uses the list.
-  (Tested: 3,000 address entries, 124 KB, started; 4,000, 166 KB, did not.) Thousands of entries
-  cost nothing per post: the list is parsed once, not per submission.
+  (Tested: 3,000 address entries, 124 KB, started; 4,000, 166 KB, did not.) The list is parsed
+  once, not per submission.
 
 ## Gibberish
 

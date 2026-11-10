@@ -456,11 +456,19 @@ describe('sender blocklist', () => {
   test('SPAM_BLOCK_SHARED (the team list) blocks on its own and adds to SPAM_BLOCK', async () => {
     const { g, a } = await load({ ...ALTCHA_ENV, SPAM_BLOCK_SHARED: 'email:shared@spam.example' })
     expect((await g.checkSubmission({ email: 'shared@spam.example', altcha: await payload(a) }, req('1.2.3.4'))).reason).toBe('honeypot')
-    const both = await blocked({ SPAM_BLOCK_SHARED: 'phone:070-999 99 99' })
-    for (const [i, f] of [{ email: 'spam@example.se' }, { phone: '0709999999' }].entries()) {
+    const both = await blocked({ SPAM_BLOCK_SHARED: 'phone:070-174 06 60' })
+    for (const [i, f] of [{ email: 'spam@example.se' }, { phone: '0701740660' }].entries()) {
       expect((await both.g.checkSubmission({ ...f, altcha: await payload(both.a) }, req(`10.1.0.${i}`))).reason).toBe('honeypot')
     }
     expect((await both.g.checkSubmission({ email: 'anna@kund.se', altcha: await payload(both.a) }, req('10.1.0.9'))).reason).toBe('ok')
+  })
+
+  test('a changed list is read again without a reload, the old entries no longer block', async () => {
+    const { g, a } = await load({ ...ALTCHA_ENV, SPAM_BLOCK_SHARED: 'email:old@spam.example' })
+    expect((await g.checkSubmission({ email: 'old@spam.example', altcha: await payload(a) }, req('10.2.0.1'))).reason).toBe('honeypot')
+    vi.stubEnv('SPAM_BLOCK_SHARED', 'email:new@spam.example')
+    expect((await g.checkSubmission({ email: 'new@spam.example', altcha: await payload(a) }, req('10.2.0.2'))).reason).toBe('honeypot')
+    expect((await g.checkSubmission({ email: 'old@spam.example', altcha: await payload(a) }, req('10.2.0.3'))).reason).toBe('ok')
   })
 
   test('warnings name the list the bad entry is in', async () => {
