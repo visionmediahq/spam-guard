@@ -16,6 +16,7 @@
 //   --map <site>=<std>   send a standard field under the site's own name, e.g. --map namn=name
 //   --field <key>=<val>  an extra field the form requires, e.g. --field antal=20
 //   --json               post JSON instead of form data
+//   --omit <field>       leave out company, subject or phone (a site whose own old honeypot uses that name)
 //
 // Each live send needs Jörgen's OK first: the client sees it. One post per run; each post counts
 // toward the site's rate limit (5 per client per 10 minutes). Keep phone numbers out of this repo.
@@ -26,6 +27,8 @@ import { pathToFileURL } from 'node:url'
 export const SUBJECT = 'TEST från Vision Media (kan ignoreras)'
 const STANDARD = ['name', 'email', 'company', 'subject', 'message', 'phone'] as const
 type Standard = (typeof STANDARD)[number]
+/** Fields the test can do without; name, e-mail and message always go. */
+const OPTIONAL: readonly Standard[] = ['company', 'subject', 'phone']
 
 /** The message text: fixed wording, then the site host and the spam-guard version that handled it. */
 export function testMessage(host: string, version: string | undefined): string {
@@ -43,6 +46,7 @@ export type FieldOptions = {
   /** site field name → standard field name */
   map?: Record<string, Standard>
   extra?: Record<string, string>
+  omit?: Standard[]
 }
 
 /** The fields to post, without the altcha payload. */
@@ -55,6 +59,7 @@ export function formFields(o: FieldOptions): Record<string, string> {
     message: testMessage(o.host, o.version),
     ...(o.phone ? { phone: o.phone } : {}),
   }
+  for (const k of o.omit ?? []) delete std[k]
   const renamed = new Set(Object.values(o.map ?? {}))
   const fields: Record<string, string> = {}
   for (const [key, value] of Object.entries(std)) if (!renamed.has(key as Standard)) fields[key] = value
@@ -75,9 +80,10 @@ export type Args = {
   phone?: string
   map: Record<string, Standard>
   extra: Record<string, string>
+  omit: Standard[]
 }
 
-const USAGE = 'usage: node --experimental-strip-types ci/test-message.ts <site url> [--send] [--repo name | --version x.y.z] [--phone n] [--path /api/contact] [--map site=standard] [--field key=value] [--json]'
+const USAGE = 'usage: node --experimental-strip-types ci/test-message.ts <site url> [--send] [--repo name | --version x.y.z] [--phone n] [--path /api/contact] [--map site=standard] [--field key=value] [--omit company|subject|phone] [--json]'
 
 function pair(flag: string, value: string | undefined): [string, string] {
   const i = value?.indexOf('=') ?? -1
@@ -89,7 +95,7 @@ export function parseArgs(argv: string[], envVars: Record<string, string | undef
   const [url, ...rest] = argv
   if (!url) throw new Error(USAGE)
   if (!/^https?:\/\//.test(url)) throw new Error(`the site url must start with http:// or https:// (${USAGE})`)
-  const a: Args = { base: url.replace(/\/+$/, ''), path: '/api/contact', send: false, json: false, map: {}, extra: {} }
+  const a: Args = { base: url.replace(/\/+$/, ''), path: '/api/contact', send: false, json: false, map: {}, extra: {}, omit: [] }
   const phone = envVars.TEST_PHONE?.trim()
   if (phone) a.phone = phone
   for (let i = 0; i < rest.length; i++) {
@@ -112,9 +118,34 @@ export function parseArgs(argv: string[], envVars: Record<string, string | undef
     } else if (flag === '--field') {
       const [key, value] = pair(flag, next())
       a.extra[key] = value
+    } else if (flag === '--omit') {
+      const field = next()
+      if (!(OPTIONAL as readonly string[]).includes(field)) throw new Error(`--omit: ${field} is not one of ${OPTIONAL.join(', ')}`)
+      a.omit.push(field as Standard)
     } else throw new Error(`unknown option ${flag} (${USAGE})`)
   }
   return a
+}
+
+/**
+ * Fields this post sends that the site's own route reads as a honeypot (an older copy, like lovit's
+ * `company`): such a post is dropped with a fake success, so the test would look delivered.
+ */
+export function ownHoneypotFields(routeSource: string, sent: string[]): string[] {
+  const lines = routeSource.split('\n').filter((l) => /honeypot/i.test(l))
+  return sent.filter((f) => f !== 'hp_x7q2' && lines.some((l) => new RegExp(`['"\`.]${f}\\b`).test(l)))
+}
+
+function routeSource(repo: string, path: string): string | undefined {
+  for (const ext of ['ts', 'js', 'mjs']) {
+    try {
+      const b64 = execFileSync('gh', ['api', `repos/visionmediahq/${repo}/contents/src/pages${path}.${ext}`, '--jq', '.content'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
+      return Buffer.from(b64, 'base64').toString('utf8')
+    } catch {
+      // try the next extension
+    }
+  }
+  return undefined
 }
 
 /** The spam-guard version locked in visionmediahq/<repo>'s default branch. */
@@ -141,7 +172,13 @@ async function main(): Promise<void> {
     process.exit(1)
   }
 
-  const fields = formFields({ host, version, phone: args.phone, map: args.map, extra: args.extra })
+  const fields = formFields({ host, version, phone: args.phone, map: args.map, extra: args.extra, omit: args.omit })
+  const src = args.repo ? routeSource(args.repo, args.path) : undefined
+  const trap = src ? ownHoneypotFields(src, Object.keys(fields)) : []
+  if (trap.length) {
+    console.error(`${host}: the route reads ${trap.join(', ')} as its own honeypot; the post would be dropped with a fake success. Leave it out with --omit or rename it with --map.`)
+    process.exit(1)
+  }
   console.log(`${args.send ? 'Sending' : 'Dry run (add --send to send)'}: POST ${args.base}${args.path}${args.json ? ' (JSON)' : ''}`)
   for (const [k, v] of Object.entries(fields)) console.log(`  ${k}: ${v.replace(/\n/g, ' ⏎ ')}`)
   if (!args.send) return
