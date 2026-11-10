@@ -297,6 +297,42 @@ The two variables belong to the Coolify app, not to its domain:
 
 Both are runtime variables: after changing them on a running app, restart it (no rebuild needed).
 
+## Test message
+
+To check that a client's form still sends mail (after an upgrade, a Coolify change or a new
+`RESEND_API_KEY`), send the same standard test message every time:
+
+```bash
+node --experimental-strip-types ci/test-message.ts https://kund.se --repo kund            # dry run: shows the fields
+node --experimental-strip-types ci/test-message.ts https://kund.se --repo kund --send     # sends it
+```
+
+It solves the site's ALTCHA challenge and posts to the real `/api/contact` with an empty honeypot,
+as a browser does, so the spam check, the rate limit and the mail all run. The client receives:
+
+| Field | Value |
+|---|---|
+| Name | `Vision Media (test)` |
+| E-mail | `support@visionmedia.io` (the reply-to, so a reply reaches the shared inbox) |
+| Company | `Vision Media` |
+| Subject | `TEST från Vision Media (kan ignoreras)` |
+| Message | `TEST – inget att åtgärda. Vi har uppdaterat skyddet mot skräppost i kontaktformuläret och kontrollerar att meddelanden kommer fram. Ni behöver inte svara. Hälsningar, Vision Media`, then `Sida: <host> · spam-guard v<X.Y.Z>` |
+
+The version comes from the site repo's lockfile (`--repo <name>`, needs `gh`), or give it with
+`--version`. It is the version the site runs once its last merge is deployed. The version line is
+only in test messages; real client mail is unchanged.
+
+Options for forms that differ: `--path /api/offert`, `--map namn=name` (send a standard value under
+the form's own field name: `name`, `email`, `company`, `subject`, `message`, `phone`),
+`--field antal=20` (an extra field the form requires), `--json` (a route that reads JSON), and
+`--phone <number>` or `TEST_PHONE` in the environment where the form requires a phone number. Keep
+the number out of this repo.
+
+- Each live send needs Jörgen's OK first: it lands in the client's inbox.
+- One send per run. Each counts toward the site's rate limit (5 per client per 10 minutes).
+- Then check the site's log for `[spam-guard] accepted` and no mail error, and Resend for
+  `delivered`.
+
 ## Upgrading
 
 Sites depend on `semver:^1.0.0`, so a site picks up a new 1.x tag at its next `npm install`
