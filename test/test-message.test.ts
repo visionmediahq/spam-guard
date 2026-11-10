@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { formFields, parseArgs, testMessage, SUBJECT } from '../ci/test-message'
+import { formFields, ownHoneypotFields, parseArgs, testMessage, SUBJECT } from '../ci/test-message'
 
 describe('the standard test message (#9)', () => {
   test('fixed text, then the site host and the spam-guard version', () => {
@@ -56,6 +56,23 @@ describe('the standard test message (#9)', () => {
       path: '/api/offert',
       phone: '070-1',
     })
+  })
+
+  test('--omit leaves a standard field out (a site whose own honeypot is called company)', () => {
+    const a = parseArgs(['https://x.se', '--omit', 'company', '--field', 'consent=on'], {})
+    expect(a.omit).toEqual(['company'])
+    const f = formFields({ host: 'x.se', version: '1.4.1', omit: a.omit, extra: a.extra })
+    expect(f.company).toBeUndefined()
+    expect(f.name).toBe('Vision Media (test)')
+    expect(f.consent).toBe('on')
+    expect(() => parseArgs(['https://x.se', '--omit', 'message'], {})).toThrow(/--omit/)
+    expect(() => parseArgs(['https://x.se', '--omit', 'nope'], {})).toThrow(/--omit/)
+  })
+
+  test('a field the route reads as its own honeypot is caught before sending', () => {
+    const lovit = "        honeypot: typeof body.company === 'string' ? body.company : '',\n      honeypot: String(form.get('company') ?? ''),\n      name: String(form.get('name') ?? ''),"
+    expect(ownHoneypotFields(lovit, ['name', 'email', 'company', 'message', 'hp_x7q2'])).toEqual(['company'])
+    expect(ownHoneypotFields("const spam = await checkSubmission(body, request) // honeypot hp_x7q2 inside", ['name', 'company', 'hp_x7q2'])).toEqual([])
   })
 
   test('bad arguments are refused', () => {

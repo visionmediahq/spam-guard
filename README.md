@@ -343,7 +343,12 @@ Options for forms that differ: `--path /api/offert`, `--map namn=name` (send a s
 the form's own field name: `name`, `email`, `company`, `subject`, `message`, `phone`),
 `--field antal=20` (an extra field the form requires), `--json` (a route that reads JSON), and
 `--phone <number>` or `TEST_PHONE` in the environment where the form requires a phone number. Keep
-the number out of this repo.
+the number out of this repo. `--omit company` (or `subject`, `phone`) leaves a field out.
+
+With `--repo`, the script reads the site's route first and stops if the route treats a field it
+would send as its own honeypot (an older copy, e.g. a hidden `company` field): such a post gets a
+fake success and is never mailed, so the test would look delivered. Leave the field out with
+`--omit` or rename it with `--map`.
 
 - Each live send needs Jörgen's OK first: it lands in the client's inbox.
 - One send per run. Each counts toward the site's rate limit (5 per client per 10 minutes).
