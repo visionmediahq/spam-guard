@@ -11,7 +11,7 @@ const RECAPTCHA_ENV = {
   PUBLIC_RECAPTCHA_SITE_KEY: 'site',
   SITE_URL: 'https://kund.example',
 }
-const ALL_KEYS = ['SPAM_PROVIDER', 'ALTCHA_HMAC_SECRET', 'RECAPTCHA_SECRET_KEY', 'PUBLIC_RECAPTCHA_SITE_KEY', 'SITE_URL', 'RECAPTCHA_ALLOWED_HOSTS', 'SPAM_BLOCK', 'SPAM_GIBBERISH']
+const ALL_KEYS = ['SPAM_PROVIDER', 'ALTCHA_HMAC_SECRET', 'RECAPTCHA_SECRET_KEY', 'PUBLIC_RECAPTCHA_SITE_KEY', 'SITE_URL', 'RECAPTCHA_ALLOWED_HOSTS', 'SPAM_BLOCK', 'SPAM_BLOCK_SHARED', 'SPAM_GIBBERISH']
 
 let warn: ReturnType<typeof vi.spyOn>
 let error: ReturnType<typeof vi.spyOn>
@@ -451,6 +451,32 @@ describe('sender blocklist', () => {
     const warnings = logLines().filter((l) => l.includes('SPAM_BLOCK'))
     expect(warnings).toEqual(['[spam-guard] SPAM_BLOCK: skipped entries 1, 2, 3 (use email:address, email:@domain or phone:number)'])
     expect(warnings.join()).not.toContain('Bob')
+  })
+
+  test('SPAM_BLOCK_SHARED (the team list) blocks on its own and adds to SPAM_BLOCK', async () => {
+    const { g, a } = await load({ ...ALTCHA_ENV, SPAM_BLOCK_SHARED: 'email:shared@spam.example' })
+    expect((await g.checkSubmission({ email: 'shared@spam.example', altcha: await payload(a) }, req('1.2.3.4'))).reason).toBe('honeypot')
+    const both = await blocked({ SPAM_BLOCK_SHARED: 'phone:070-999 99 99' })
+    for (const [i, f] of [{ email: 'spam@example.se' }, { phone: '0709999999' }].entries()) {
+      expect((await both.g.checkSubmission({ ...f, altcha: await payload(both.a) }, req(`10.1.0.${i}`))).reason).toBe('honeypot')
+    }
+    expect((await both.g.checkSubmission({ email: 'anna@kund.se', altcha: await payload(both.a) }, req('10.1.0.9'))).reason).toBe('ok')
+  })
+
+  test('warnings name the list the bad entry is in', async () => {
+    const { g, a } = await blocked({ SPAM_BLOCK_SHARED: 'email:ok@spam.example, nope, email:@gmail.com' })
+    await g.checkSubmission({ email: 'anna@kund.se', altcha: await payload(a) }, req('1.2.3.4'))
+    expect(logLines()).toContain('[spam-guard] SPAM_BLOCK_SHARED: skipped entries 2 (use email:address, email:@domain or phone:number)')
+    expect(logLines()).toContain('[spam-guard] SPAM_BLOCK_SHARED: refused entries 3 (a whole e-mail provider or public suffix: block the address instead)')
+  })
+
+  test('a long shared list, one entry per line, still matches its last entry', async () => {
+    const lines = Array.from({ length: 3000 }, (_, i) => (i % 2 ? `email:sender${i}@spam${i}.example` : `phone:070-${String(1000000 + i).padStart(7, '0')}`))
+    const { g, a } = await load({ ...ALTCHA_ENV, SPAM_BLOCK_SHARED: lines.join('\n') })
+    expect((await g.checkSubmission({ email: 'sender2999@spam2999.example', altcha: await payload(a) }, req('1.2.3.4'))).reason).toBe('honeypot')
+    expect((await g.checkSubmission({ phone: '070-100 29 98', altcha: await payload(a) }, req('1.2.3.5'))).reason).toBe('honeypot')
+    expect((await g.checkSubmission({ email: 'anna@kund.se', altcha: await payload(a) }, req('1.2.3.6'))).reason).toBe('ok')
+    expect(logLines().some((l) => l.includes('skipped') || l.includes('refused'))).toBe(false)
   })
 
   test('a blocked post counts toward the rate limit', async () => {

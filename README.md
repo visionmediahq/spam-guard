@@ -201,7 +201,8 @@ All read at runtime (`process.env`); no build variables.
 | `PUBLIC_RECAPTCHA_SITE_KEY`, `RECAPTCHA_SECRET_KEY` | reCAPTCHA v3 keys (recaptcha mode). |
 | `RECAPTCHA_ALLOWED_HOSTS` | Extra token hosts besides `SITE_URL`'s, comma-separated. |
 | `ALTCHA_HMAC_SECRET` | altcha mode: at least 32 characters, unique per app (`openssl rand -hex 32`), never shared between apps. |
-| `SPAM_BLOCK` | Optional sender blocklist, see [Blocking a sender](#blocking-a-sender). |
+| `SPAM_BLOCK` | Optional sender blocklist for this site, see [Blocking a sender](#blocking-a-sender). |
+| `SPAM_BLOCK_SHARED` | Optional shared blocklist, same form, normally `{{team.SPAM_BLOCK}}`. See [One list for every site](#one-list-for-every-site). |
 | `SPAM_GIBBERISH` | Unset: gibberish posts are flagged. `drop`: dropped with the fake success. See [Gibberish](#gibberish). |
 
 ## Blocking a sender
@@ -244,9 +245,24 @@ foreign number written with its trunk 0 (`+44 020 …` is not `+44 20 …`); val
 characters and JSON nested deeper than 3 levels, which a normal form never sends but a hand-made
 request can; and a domain entry in Unicode form against the same domain in punycode (`xn--…`).
 
-To share one list between sites, keep it in a Coolify team variable and point each app at it:
-`SPAM_BLOCK={{team.SPAM_BLOCK}}`. A site can also add entries in code:
+A site can also add entries in code:
 `checkSubmission(fields, request, { block: ['email:spam@example.se'] })`.
+
+### One list for every site
+
+`SPAM_BLOCK_SHARED` takes the same entries and adds to the site's own `SPAM_BLOCK`. Keep the
+shared list in one Coolify team variable, `SPAM_BLOCK`, and give each app
+`SPAM_BLOCK_SHARED={{team.SPAM_BLOCK}}` as a runtime variable (not a build variable). A site's own
+entries stay in its `SPAM_BLOCK`.
+
+- A change to the team variable reaches a site when its app restarts or redeploys; until then the
+  site keeps the list it started with.
+- Every entry drops that sender on every site, so list whole addresses and numbers. A domain
+  entry belongs in the shared list only when nobody at that domain could be a customer.
+- **Size limit: keep the list under 100 KB, about 2,500 entries.** Linux refuses an environment
+  variable over 128 KB: the container does not start at all, on every app that uses the list.
+  (Tested: 3,000 address entries, 124 KB, started; 4,000, 166 KB, did not.) Thousands of entries
+  cost nothing per post: the list is parsed once, not per submission.
 
 ## Gibberish
 
