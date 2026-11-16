@@ -2,20 +2,24 @@ name: CI
 
 on:
   # Feature branches run through their PR only; main and release tags run on push.
-  # Docs-only changes skip CI (path filters do not apply to tag pushes, so tags always run).
+  # Docs-only pushes to main skip CI (path filters do not apply to tag pushes, so tags always run).
+  # No path filter on pull_request: the "protect main" ruleset requires unit and fixture, and a
+  # workflow skipped by a path filter leaves required checks pending, so a docs-only PR could
+  # never merge.
   push:
     branches: [main]
     tags: ['v*']
     paths-ignore: ['**/*.md']
   pull_request:
-    paths-ignore: ['**/*.md']
   workflow_dispatch:
 
-# A new push to a PR cancels that PR's older run. Runs on main and tags always finish, so every
-# main commit keeps a full result (starter-install is the release proof).
+# Only PR runs share a group: a new push to a PR cancels that PR's older run. Every other run
+# gets its own group (run_id), because a group also cancels a *pending* run when a newer one
+# queues, even with cancel-in-progress false. Every main commit keeps a full result
+# (starter-install is the release proof).
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+  group: ${{ github.event_name == 'pull_request' && format('ci-{0}', github.ref) || format('ci-{0}', github.run_id) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   unit:
