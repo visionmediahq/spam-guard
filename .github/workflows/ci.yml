@@ -1,9 +1,21 @@
 name: CI
 
 on:
+  # Feature branches run through their PR only; main and release tags run on push.
+  # Docs-only changes skip CI (path filters do not apply to tag pushes, so tags always run).
   push:
+    branches: [main]
+    tags: ['v*']
+    paths-ignore: ['**/*.md']
   pull_request:
+    paths-ignore: ['**/*.md']
   workflow_dispatch:
+
+# A new push to a PR cancels that PR's older run. Runs on main and tags always finish, so every
+# main commit keeps a full result (starter-install is the release proof).
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
 
 jobs:
   unit:
