@@ -61,7 +61,8 @@ jobs:
   # Not on pull_request: github.sha is then a temporary merge commit (refs/pull/N/merge), not the
   # commit that lands. So it first runs after the merge, on main. To prove a risky PR before
   # merging (package.json files/exports, ci/wire-starter.ts, the install path), run the workflow
-  # by hand on the PR branch: `gh workflow run CI --ref <branch>`.
+  # by hand on the PR branch: `gh workflow run CI --ref <branch>`. That tests the branch head,
+  # not the merge result, so rebase on main first.
   starter-install:
     if: github.event_name != 'pull_request' && vars.STARTER_INSTALL == 'true'
     runs-on: ubuntu-latest
