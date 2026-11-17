@@ -1,9 +1,25 @@
 name: CI
 
 on:
+  # Feature branches run through their PR only; main and release tags run on push.
+  # Docs-only pushes to main skip CI (path filters do not apply to tag pushes, so tags always run).
+  # No path filter on pull_request: the "protect main" ruleset requires unit and fixture, and a
+  # workflow skipped by a path filter leaves required checks pending, so a docs-only PR could
+  # never merge.
   push:
+    branches: [main]
+    tags: ['v*']
+    paths-ignore: ['**/*.md']
   pull_request:
   workflow_dispatch:
+
+# Only PR runs share a group: a new push to a PR cancels that PR's older run. Every other run
+# gets its own group (run_id), because a group also cancels a *pending* run when a newer one
+# queues, even with cancel-in-progress false. So no run on main or a tag is ever cancelled.
+# (A docs-only push to main starts no run at all; see paths-ignore above.)
+concurrency:
+  group: ${{ github.event_name == 'pull_request' && format('{0}-{1}', github.workflow, github.ref) || format('{0}-{1}', github.workflow, github.run_id) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   unit:
@@ -42,7 +58,11 @@ jobs:
   # The real distribution path: astro-starter main wired to this commit as a git dependency,
   # resolved WITHOUT git inside the starter's unmodified Dockerfile. Needs the repo variable
   # STARTER_INSTALL=true and the secret STARTER_READ_TOKEN (read-only on visionmediahq/astro-starter).
-  # Not on pull_request: github.sha is then a merge commit that does not exist in the repository.
+  # Not on pull_request: github.sha is then a temporary merge commit (refs/pull/N/merge), not the
+  # commit that lands. So it first runs after the merge, on main. To prove a risky PR before
+  # merging (package.json files/exports, ci/wire-starter.ts, the install path), run the workflow
+  # by hand on the PR branch: `gh workflow run CI --ref <branch>`. That tests the branch head,
+  # not the merge result, so rebase on main first.
   starter-install:
     if: github.event_name != 'pull_request' && vars.STARTER_INSTALL == 'true'
     runs-on: ubuntu-latest
@@ -87,7 +107,8 @@ jobs:
           node --experimental-strip-types ci/smoke.ts http://127.0.0.1:5601
 
   # A skipped starter-install job reads as green. Flag a release tag that was pushed without it.
-  # This cannot take the tag back: starter-install must be green on main BEFORE tagging.
+  # This cannot take the tag back: starter-install must be green BEFORE tagging, on the tagged
+  # commit or, if that is a docs-only commit (no run), on the last main commit that ran.
   release-guard:
     if: startsWith(github.ref, 'refs/tags/v') && vars.STARTER_INSTALL != 'true'
     runs-on: ubuntu-latest
